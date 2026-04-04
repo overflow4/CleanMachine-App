@@ -1,6 +1,7 @@
 import React from "react";
-import { View, TextInput } from "react-native";
+import { View, TextInput, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { Theme } from "@/constants/colors";
 
 interface Props {
   value: string;
@@ -10,15 +11,24 @@ interface Props {
 
 export function SearchBar({ value, onChangeText, placeholder = "Search..." }: Props) {
   return (
-    <View className="mx-4 mb-3 flex-row items-center rounded-lg bg-dark-100 px-3 dark:bg-dark-800">
-      <Ionicons name="search" size={18} color="#94a3b8" />
+    <View style={styles.container}>
+      <Ionicons name="search" size={16} color={Theme.mutedForeground} />
       <TextInput
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor="#94a3b8"
-        className="ml-2 flex-1 py-2.5 text-base text-dark-900 dark:text-white"
+        placeholderTextColor={Theme.mutedForeground}
+        style={styles.input}
       />
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flexDirection: "row", alignItems: "center", marginHorizontal: 16, marginBottom: 8,
+    paddingHorizontal: 12, borderRadius: 10, backgroundColor: Theme.muted,
+    borderWidth: 1, borderColor: Theme.border,
+  },
+  input: { flex: 1, marginLeft: 8, paddingVertical: 10, fontSize: 14, color: Theme.foreground },
+});

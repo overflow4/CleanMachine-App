@@ -1,12 +1,13 @@
 import React from "react";
-import { View, Text, FlatList, RefreshControl } from "react-native";
+import { View, Text, FlatList, RefreshControl, StyleSheet } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import { fetchExceptions } from "@/lib/api";
-import { Card } from "@/components/ui/Card";
+import { GlassCard } from "@/components/ui/GlassCard";
 import { Badge } from "@/components/ui/Badge";
 import { LoadingScreen } from "@/components/ui/LoadingScreen";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Theme } from "@/constants/colors";
 import { AttentionItem } from "@/types";
 
 export default function ExceptionsScreen() {
@@ -32,34 +33,34 @@ export default function ExceptionsScreen() {
 
   return (
     <FlatList
-      className="flex-1 bg-dark-50 dark:bg-dark-900"
+      style={styles.container}
       data={exceptions}
       keyExtractor={(item, i) => item.id || i.toString()}
       contentContainerStyle={{ padding: 16 }}
-      refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} />}
+      refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} tintColor={Theme.primary} />}
       renderItem={({ item }) => (
-        <Card className="mb-2">
-          <View className="flex-row items-start">
+        <GlassCard style={styles.card}>
+          <View style={styles.rowStart}>
             <Ionicons
               name={typeIcons[item.type] || "alert-circle-outline"}
               size={24}
-              color={item.priority === "high" ? "#ef4444" : "#f59e0b"}
+              color={item.priority === "high" ? Theme.destructive : Theme.warning}
             />
-            <View className="ml-3 flex-1">
-              <View className="flex-row items-center justify-between">
-                <Text className="font-medium text-dark-900 dark:text-white">{item.title}</Text>
+            <View style={{ marginLeft: 12, flex: 1 }}>
+              <View style={styles.rowBetween}>
+                <Text style={styles.titleText}>{item.title}</Text>
                 <Badge
                   label={item.priority}
                   variant={item.priority === "high" ? "error" : "warning"}
                 />
               </View>
-              <Text className="mt-1 text-sm text-dark-500 dark:text-dark-400">{item.description}</Text>
-              <Text className="mt-1 text-xs text-dark-400">
+              <Text style={styles.descText}>{item.description}</Text>
+              <Text style={styles.dateText}>
                 {new Date(item.created_at).toLocaleString()}
               </Text>
             </View>
           </View>
-        </Card>
+        </GlassCard>
       )}
       ListEmptyComponent={
         <EmptyState icon="checkmark-circle-outline" title="No exceptions" description="All clear!" />
@@ -67,3 +68,38 @@ export default function ExceptionsScreen() {
     />
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Theme.background,
+  },
+  card: {
+    marginBottom: 8,
+  },
+  rowStart: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+  rowBetween: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  titleText: {
+    fontWeight: "500",
+    color: Theme.foreground,
+    flex: 1,
+    marginRight: 8,
+  },
+  descText: {
+    marginTop: 4,
+    fontSize: 13,
+    color: Theme.mutedForeground,
+  },
+  dateText: {
+    marginTop: 4,
+    fontSize: 11,
+    color: Theme.zinc400,
+  },
+});

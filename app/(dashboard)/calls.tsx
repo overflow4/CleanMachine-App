@@ -1,13 +1,14 @@
 import React from "react";
-import { View, Text, FlatList, RefreshControl, TouchableOpacity, Linking } from "react-native";
+import { View, Text, FlatList, RefreshControl, TouchableOpacity, Linking, StyleSheet } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import { fetchCalls } from "@/lib/api";
 import { CallRecord } from "@/types";
-import { Card } from "@/components/ui/Card";
+import { GlassCard } from "@/components/ui/GlassCard";
 import { Badge } from "@/components/ui/Badge";
 import { LoadingScreen } from "@/components/ui/LoadingScreen";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Theme } from "@/constants/colors";
 
 export default function CallsScreen() {
   const { data, isLoading, refetch, isRefetching } = useQuery({
@@ -27,29 +28,30 @@ export default function CallsScreen() {
 
   return (
     <FlatList
-      className="flex-1 bg-dark-50 dark:bg-dark-900"
+      style={styles.container}
       data={calls}
       keyExtractor={(item) => item.id}
       contentContainerStyle={{ padding: 16 }}
-      refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} />}
+      refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} tintColor={Theme.primary} />}
       renderItem={({ item }) => (
-        <Card className="mb-2">
-          <View className="flex-row items-start">
-            <View className={`h-10 w-10 items-center justify-center rounded-full ${
-              item.direction === "inbound" ? "bg-green-100 dark:bg-green-900/30" : "bg-blue-100 dark:bg-blue-900/30"
-            }`}>
+        <GlassCard style={styles.card}>
+          <View style={styles.rowStart}>
+            <View style={[
+              styles.directionIcon,
+              { backgroundColor: item.direction === "inbound" ? Theme.successBg : Theme.infoBg },
+            ]}>
               <Ionicons
                 name={item.direction === "inbound" ? "call-outline" : "arrow-redo-outline"}
                 size={20}
-                color={item.direction === "inbound" ? "#22c55e" : "#3b82f6"}
+                color={item.direction === "inbound" ? Theme.success : Theme.info}
               />
             </View>
-            <View className="ml-3 flex-1">
-              <Text className="font-medium text-dark-900 dark:text-white">
+            <View style={{ marginLeft: 12, flex: 1 }}>
+              <Text style={styles.nameText}>
                 {item.customer_name || item.phone_number}
               </Text>
-              <Text className="text-sm text-dark-500 dark:text-dark-400">
-                {item.direction} • {formatDuration(item.duration_seconds)}
+              <Text style={styles.subText}>
+                {item.direction} {"\u2022"} {formatDuration(item.duration_seconds)}
               </Text>
               {item.outcome && (
                 <Badge
@@ -58,21 +60,21 @@ export default function CallsScreen() {
                 />
               )}
               {item.transcript && (
-                <Text className="mt-2 text-sm text-dark-600 dark:text-dark-300" numberOfLines={3}>
+                <Text style={styles.transcriptText} numberOfLines={3}>
                   {item.transcript}
                 </Text>
               )}
-              <Text className="mt-1 text-xs text-dark-400">
+              <Text style={styles.dateText}>
                 {new Date(item.created_at).toLocaleString()}
               </Text>
             </View>
             {item.recording_url && (
               <TouchableOpacity onPress={() => Linking.openURL(item.recording_url!)}>
-                <Ionicons name="play-circle-outline" size={28} color="#3b82f6" />
+                <Ionicons name="play-circle-outline" size={28} color={Theme.primary} />
               </TouchableOpacity>
             )}
           </View>
-        </Card>
+        </GlassCard>
       )}
       ListEmptyComponent={
         <EmptyState icon="call-outline" title="No calls" description="Call logs will appear here" />
@@ -80,3 +82,43 @@ export default function CallsScreen() {
     />
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Theme.background,
+  },
+  card: {
+    marginBottom: 8,
+  },
+  rowStart: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+  directionIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  nameText: {
+    fontWeight: "500",
+    color: Theme.foreground,
+  },
+  subText: {
+    fontSize: 13,
+    color: Theme.mutedForeground,
+  },
+  transcriptText: {
+    marginTop: 8,
+    fontSize: 13,
+    color: Theme.foreground,
+    opacity: 0.7,
+  },
+  dateText: {
+    marginTop: 4,
+    fontSize: 11,
+    color: Theme.zinc400,
+  },
+});

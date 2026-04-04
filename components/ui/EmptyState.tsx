@@ -1,6 +1,7 @@
 import React from "react";
-import { View, Text } from "react-native";
+import { View, Text, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { Theme } from "@/constants/colors";
 
 interface Props {
   icon?: keyof typeof Ionicons.glyphMap;
@@ -10,16 +11,16 @@ interface Props {
 
 export function EmptyState({ icon = "document-text-outline", title, description }: Props) {
   return (
-    <View className="flex-1 items-center justify-center p-8">
-      <Ionicons name={icon} size={48} color="#94a3b8" />
-      <Text className="mt-4 text-lg font-semibold text-dark-700 dark:text-dark-200">
-        {title}
-      </Text>
-      {description && (
-        <Text className="mt-2 text-center text-dark-500 dark:text-dark-400">
-          {description}
-        </Text>
-      )}
+    <View style={styles.container}>
+      <Ionicons name={icon} size={48} color={Theme.zinc600} />
+      <Text style={styles.title}>{title}</Text>
+      {description && <Text style={styles.desc}>{description}</Text>}
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32 },
+  title: { marginTop: 16, fontSize: 17, fontWeight: "600", color: Theme.foreground },
+  desc: { marginTop: 8, textAlign: "center", color: Theme.mutedForeground, fontSize: 14 },
+});

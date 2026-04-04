@@ -6,22 +6,21 @@ import {
   RefreshControl,
   TouchableOpacity,
   Alert,
+  StyleSheet,
 } from "react-native";
 import { Calendar, DateData } from "react-native-calendars";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { fetchJobs, completeJob, assignCleaner } from "@/lib/api";
-import { Card } from "@/components/ui/Card";
+import { GlassCard } from "@/components/ui/GlassCard";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { LoadingScreen } from "@/components/ui/LoadingScreen";
+import { Theme } from "@/constants/colors";
 import { Job } from "@/types";
-import { useColorScheme } from "react-native";
 
 export default function CalendarScreen() {
-  const scheme = useColorScheme();
-  const isDark = scheme === "dark";
   const [selectedDate, setSelectedDate] = useState(
     new Date().toISOString().split("T")[0]
   );
@@ -56,23 +55,22 @@ export default function CalendarScreen() {
   const markedDates: Record<string, any> = {
     [selectedDate]: {
       selected: true,
-      selectedColor: "#3b82f6",
+      selectedColor: Theme.primary,
     },
   };
 
-  // Mark dates with jobs
   jobs.forEach((job) => {
     const d = job.date || job.scheduled_date;
     if (d && d !== selectedDate) {
-      markedDates[d] = { marked: true, dotColor: "#3b82f6" };
+      markedDates[d] = { marked: true, dotColor: Theme.primary };
     }
   });
 
   return (
     <ScrollView
-      className="flex-1 bg-dark-50 dark:bg-dark-900"
+      style={styles.container}
       refreshControl={
-        <RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} />
+        <RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} tintColor={Theme.primary} />
       }
     >
       <Calendar
@@ -80,21 +78,21 @@ export default function CalendarScreen() {
         onDayPress={(day: DateData) => setSelectedDate(day.dateString)}
         markedDates={markedDates}
         theme={{
-          backgroundColor: isDark ? "#0f172a" : "#ffffff",
-          calendarBackground: isDark ? "#0f172a" : "#ffffff",
-          textSectionTitleColor: isDark ? "#94a3b8" : "#64748b",
-          selectedDayBackgroundColor: "#3b82f6",
+          backgroundColor: Theme.background,
+          calendarBackground: Theme.background,
+          textSectionTitleColor: Theme.mutedForeground,
+          selectedDayBackgroundColor: Theme.primary,
           selectedDayTextColor: "#ffffff",
-          todayTextColor: "#3b82f6",
-          dayTextColor: isDark ? "#f8fafc" : "#0f172a",
-          textDisabledColor: isDark ? "#334155" : "#cbd5e1",
-          monthTextColor: isDark ? "#f8fafc" : "#0f172a",
-          arrowColor: "#3b82f6",
+          todayTextColor: Theme.primary,
+          dayTextColor: Theme.foreground,
+          textDisabledColor: Theme.zinc600,
+          monthTextColor: Theme.foreground,
+          arrowColor: Theme.primary,
         }}
       />
 
-      <View className="p-4">
-        <Text className="mb-3 text-lg font-semibold text-dark-900 dark:text-white">
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>
           Jobs for {new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", {
             weekday: "long",
             month: "short",
@@ -105,41 +103,39 @@ export default function CalendarScreen() {
         {isLoading ? (
           <LoadingScreen message="Loading jobs..." />
         ) : jobs.length === 0 ? (
-          <Card>
-            <Text className="text-center text-dark-500 dark:text-dark-400">
-              No jobs on this date
-            </Text>
-          </Card>
+          <GlassCard>
+            <Text style={styles.emptyText}>No jobs on this date</Text>
+          </GlassCard>
         ) : (
           jobs.map((job, i) => (
-            <Card key={job.id || i} className="mb-3">
-              <View className="flex-row items-start justify-between">
-                <View className="flex-1">
-                  <Text className="text-base font-semibold text-dark-900 dark:text-white">
+            <GlassCard key={job.id || i} style={styles.jobCard}>
+              <View style={styles.jobRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.jobName}>
                     {job.customer_name || job.phone_number || "Unnamed"}
                   </Text>
-                  <View className="mt-1 flex-row items-center">
-                    <Ionicons name="time-outline" size={14} color="#94a3b8" />
-                    <Text className="ml-1 text-sm text-dark-500 dark:text-dark-400">
+                  <View style={styles.detailRow}>
+                    <Ionicons name="time-outline" size={14} color={Theme.mutedForeground} />
+                    <Text style={styles.detailText}>
                       {job.scheduled_time || job.scheduled_at || "TBD"}
                     </Text>
                   </View>
                   {job.address && (
-                    <View className="mt-1 flex-row items-center">
-                      <Ionicons name="location-outline" size={14} color="#94a3b8" />
-                      <Text className="ml-1 text-sm text-dark-500 dark:text-dark-400" numberOfLines={1}>
+                    <View style={styles.detailRow}>
+                      <Ionicons name="location-outline" size={14} color={Theme.mutedForeground} />
+                      <Text style={styles.detailText} numberOfLines={1}>
                         {job.address}
                       </Text>
                     </View>
                   )}
-                  <View className="mt-1 flex-row items-center">
-                    <Ionicons name="construct-outline" size={14} color="#94a3b8" />
-                    <Text className="ml-1 text-sm text-dark-500 dark:text-dark-400">
+                  <View style={styles.detailRow}>
+                    <Ionicons name="construct-outline" size={14} color={Theme.mutedForeground} />
+                    <Text style={styles.detailText}>
                       {job.service_type || "Service"}
                     </Text>
                   </View>
                 </View>
-                <View className="items-end">
+                <View style={{ alignItems: "flex-end" }}>
                   <Badge
                     label={job.status || "scheduled"}
                     variant={
@@ -153,16 +149,14 @@ export default function CalendarScreen() {
                     }
                   />
                   {job.price != null && (
-                    <Text className="mt-1 text-sm font-semibold text-green-600 dark:text-green-400">
-                      ${job.price}
-                    </Text>
+                    <Text style={styles.priceText}>${job.price}</Text>
                   )}
                 </View>
               </View>
 
               {job.status !== "completed" && job.status !== "cancelled" && (
-                <View className="mt-3 flex-row gap-2">
-                  <View className="flex-1">
+                <View style={styles.actionRow}>
+                  <View style={{ flex: 1 }}>
                     <Button
                       title="Complete"
                       variant="primary"
@@ -173,10 +167,64 @@ export default function CalendarScreen() {
                   </View>
                 </View>
               )}
-            </Card>
+            </GlassCard>
           ))
         )}
       </View>
     </ScrollView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Theme.background,
+  },
+  section: {
+    padding: 16,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: Theme.foreground,
+    marginBottom: 12,
+  },
+  emptyText: {
+    textAlign: "center",
+    color: Theme.mutedForeground,
+  },
+  jobCard: {
+    marginBottom: 12,
+  },
+  jobRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+  },
+  jobName: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: Theme.foreground,
+  },
+  detailRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 4,
+  },
+  detailText: {
+    marginLeft: 4,
+    fontSize: 13,
+    color: Theme.mutedForeground,
+  },
+  priceText: {
+    marginTop: 4,
+    fontSize: 13,
+    fontWeight: "600",
+    color: Theme.success,
+  },
+  actionRow: {
+    marginTop: 12,
+    flexDirection: "row",
+    gap: 8,
+  },
+});

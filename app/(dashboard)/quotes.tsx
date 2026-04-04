@@ -1,15 +1,16 @@
 import React, { useState } from "react";
-import { View, Text, FlatList, RefreshControl, TouchableOpacity, Alert } from "react-native";
+import { View, Text, FlatList, RefreshControl, TouchableOpacity, Alert, StyleSheet } from "react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { fetchQuotes, sendQuote } from "@/lib/api";
 import { Quote } from "@/types";
-import { Card } from "@/components/ui/Card";
+import { GlassCard } from "@/components/ui/GlassCard";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { LoadingScreen } from "@/components/ui/LoadingScreen";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Theme } from "@/constants/colors";
 
 const statusTabs = ["all", "draft", "sent", "viewed", "accepted", "declined", "expired"];
 
@@ -37,24 +38,28 @@ export default function QuotesScreen() {
   if (isLoading) return <LoadingScreen message="Loading quotes..." />;
 
   return (
-    <View className="flex-1 bg-dark-50 dark:bg-dark-900">
+    <View style={styles.container}>
       <FlatList
         horizontal
         showsHorizontalScrollIndicator={false}
         data={statusTabs}
         keyExtractor={(item) => item}
-        className="max-h-12 px-2 pt-2"
+        style={styles.filterList}
         renderItem={({ item }) => (
           <TouchableOpacity
             onPress={() => setStatusFilter(item)}
-            className={`mx-1 rounded-full px-4 py-2 ${
-              statusFilter === item ? "bg-primary-500" : "bg-dark-200 dark:bg-dark-700"
-            }`}
+            style={[
+              styles.filterChip,
+              statusFilter === item ? styles.filterChipActive : styles.filterChipInactive,
+            ]}
           >
-            <Text className={`text-sm font-medium capitalize ${
-              statusFilter === item ? "text-white" : "text-dark-700 dark:text-dark-300"
-            }`}>
-              {item}
+            <Text
+              style={[
+                styles.filterChipText,
+                statusFilter === item ? styles.filterChipTextActive : {},
+              ]}
+            >
+              {item.charAt(0).toUpperCase() + item.slice(1)}
             </Text>
           </TouchableOpacity>
         )}
@@ -63,18 +68,16 @@ export default function QuotesScreen() {
       <FlatList
         data={quotes}
         keyExtractor={(item) => item.id}
-        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} />}
-        className="px-4 pt-2"
+        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} tintColor={Theme.primary} />}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8 }}
         renderItem={({ item }) => (
-          <Card className="mb-2">
-            <View className="flex-row items-start justify-between">
-              <View className="flex-1">
-                <Text className="font-medium text-dark-900 dark:text-white">
+          <GlassCard style={styles.card}>
+            <View style={styles.rowBetween}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.nameText}>
                   {item.customer_name || `Quote #${item.id.slice(-6)}`}
                 </Text>
-                <Text className="text-sm text-dark-500 dark:text-dark-400">
-                  {item.customer_phone || ""}
-                </Text>
+                <Text style={styles.subText}>{item.customer_phone || ""}</Text>
               </View>
               <Badge
                 label={item.status}
@@ -85,22 +88,22 @@ export default function QuotesScreen() {
                 }
               />
             </View>
-            <Text className="mt-2 text-xl font-bold text-dark-900 dark:text-white">${item.total}</Text>
+            <Text style={styles.totalText}>${item.total}</Text>
             {item.line_items && item.line_items.length > 0 && (
-              <View className="mt-2">
+              <View style={{ marginTop: 8 }}>
                 {item.line_items.map((li, i) => (
-                  <Text key={i} className="text-sm text-dark-500 dark:text-dark-400">
-                    • {li.description} ({li.quantity}x ${li.unit_price})
+                  <Text key={i} style={styles.lineItem}>
+                    {"\u2022"} {li.description} ({li.quantity}x ${li.unit_price})
                   </Text>
                 ))}
               </View>
             )}
-            <Text className="mt-1 text-xs text-dark-400">
+            <Text style={styles.dateText}>
               Created {new Date(item.created_at).toLocaleDateString()}
-              {item.valid_until && ` • Valid until ${new Date(item.valid_until).toLocaleDateString()}`}
+              {item.valid_until && ` \u2022 Valid until ${new Date(item.valid_until).toLocaleDateString()}`}
             </Text>
             {(item.status === "draft" || item.status === "sent") && (
-              <View className="mt-2">
+              <View style={{ marginTop: 8 }}>
                 <Button
                   title={item.status === "draft" ? "Send Quote" : "Resend"}
                   variant="outline"
@@ -110,7 +113,7 @@ export default function QuotesScreen() {
                 />
               </View>
             )}
-          </Card>
+          </GlassCard>
         )}
         ListEmptyComponent={
           <EmptyState icon="document-text-outline" title="No quotes" description="Quotes will appear here" />
@@ -119,3 +122,66 @@ export default function QuotesScreen() {
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Theme.background,
+  },
+  filterList: {
+    maxHeight: 48,
+    paddingHorizontal: 8,
+    paddingTop: 8,
+  },
+  filterChip: {
+    marginHorizontal: 4,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  filterChipActive: {
+    backgroundColor: Theme.primary,
+  },
+  filterChipInactive: {
+    backgroundColor: Theme.muted,
+  },
+  filterChipText: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: Theme.mutedForeground,
+  },
+  filterChipTextActive: {
+    color: "#ffffff",
+  },
+  card: {
+    marginBottom: 8,
+  },
+  rowBetween: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+  },
+  nameText: {
+    fontWeight: "500",
+    color: Theme.foreground,
+  },
+  subText: {
+    fontSize: 13,
+    color: Theme.mutedForeground,
+  },
+  totalText: {
+    marginTop: 8,
+    fontSize: 22,
+    fontWeight: "700",
+    color: Theme.foreground,
+  },
+  lineItem: {
+    fontSize: 13,
+    color: Theme.mutedForeground,
+  },
+  dateText: {
+    marginTop: 4,
+    fontSize: 11,
+    color: Theme.zinc400,
+  },
+});

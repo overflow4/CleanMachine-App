@@ -66,7 +66,7 @@ export default function LoginScreen() {
       setSuccess(true);
       setLoading(false);
       setTimeout(() => {
-        router.replace("/(tabs)/overview");
+        router.replace("/(dashboard)/overview");
       }, 1000);
     } catch (err: any) {
       setError(err.message || "Invalid credentials. Try again.");

@@ -5,17 +5,19 @@ import {
   FlatList,
   TouchableOpacity,
   RefreshControl,
+  StyleSheet,
 } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import { fetchLeads, fetchPipeline } from "@/lib/api";
 import { Lead, LeadStatus } from "@/types";
-import { Card } from "@/components/ui/Card";
+import { GlassCard } from "@/components/ui/GlassCard";
 import { Badge } from "@/components/ui/Badge";
 import { SearchBar } from "@/components/ui/SearchBar";
 import { StatCard } from "@/components/ui/StatCard";
 import { LoadingScreen } from "@/components/ui/LoadingScreen";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Theme } from "@/constants/colors";
 
 const statusTabs: { key: LeadStatus | "all"; label: string }[] = [
   { key: "all", label: "All" },
@@ -74,14 +76,14 @@ export default function LeadsScreen() {
   }
 
   return (
-    <View className="flex-1 bg-dark-50 dark:bg-dark-900">
+    <View style={styles.container}>
       {/* Pipeline Summary */}
-      <View className="flex-row gap-2 px-4 pt-2 pb-2">
+      <View style={styles.statsRow}>
         <StatCard
           title="New Leads"
           value={pipeline.new_lead?.count ?? 0}
           icon="person-add-outline"
-          iconColor="#3b82f6"
+          iconColor={Theme.primary}
         />
         <StatCard
           title="Pipeline Value"
@@ -90,7 +92,7 @@ export default function LeadsScreen() {
             0
           )}`}
           icon="cash-outline"
-          iconColor="#22c55e"
+          iconColor={Theme.success}
         />
       </View>
 
@@ -100,22 +102,20 @@ export default function LeadsScreen() {
         showsHorizontalScrollIndicator={false}
         data={statusTabs}
         keyExtractor={(item) => item.key}
-        className="max-h-12 px-2"
+        style={styles.filterList}
         renderItem={({ item }) => (
           <TouchableOpacity
             onPress={() => setStatusFilter(item.key)}
-            className={`mx-1 rounded-full px-4 py-2 ${
-              statusFilter === item.key
-                ? "bg-primary-500"
-                : "bg-dark-200 dark:bg-dark-700"
-            }`}
+            style={[
+              styles.filterChip,
+              statusFilter === item.key ? styles.filterChipActive : styles.filterChipInactive,
+            ]}
           >
             <Text
-              className={`text-sm font-medium ${
-                statusFilter === item.key
-                  ? "text-white"
-                  : "text-dark-700 dark:text-dark-300"
-              }`}
+              style={[
+                styles.filterChipText,
+                statusFilter === item.key ? styles.filterChipTextActive : {},
+              ]}
             >
               {item.label}
             </Text>
@@ -129,21 +129,21 @@ export default function LeadsScreen() {
         data={filteredLeads}
         keyExtractor={(item) => item.id}
         refreshControl={
-          <RefreshControl refreshing={leadsQuery.isRefetching} onRefresh={onRefresh} />
+          <RefreshControl refreshing={leadsQuery.isRefetching} onRefresh={onRefresh} tintColor={Theme.primary} />
         }
         renderItem={({ item }) => (
-          <Card className="mx-4 mb-2">
-            <View className="flex-row items-start">
-              <View className="h-10 w-10 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/30">
+          <GlassCard style={styles.leadCard}>
+            <View style={styles.rowStart}>
+              <View style={styles.sourceAvatar}>
                 <Ionicons
                   name={sourceIcons[item.source] || "person-outline"}
                   size={18}
-                  color="#f59e0b"
+                  color={Theme.warning}
                 />
               </View>
-              <View className="ml-3 flex-1">
-                <View className="flex-row items-center justify-between">
-                  <Text className="font-medium text-dark-900 dark:text-white">
+              <View style={{ marginLeft: 12, flex: 1 }}>
+                <View style={styles.rowBetween}>
+                  <Text style={styles.nameText}>
                     {item.name || item.phone}
                   </Text>
                   <Badge
@@ -159,25 +159,23 @@ export default function LeadsScreen() {
                     }
                   />
                 </View>
-                <Text className="text-sm text-dark-500 dark:text-dark-400">
+                <Text style={styles.subText}>
                   {item.phone} • {item.source}
                 </Text>
                 {item.service_interest && (
-                  <Text className="text-sm text-dark-500 dark:text-dark-400">
+                  <Text style={styles.subText}>
                     Interested in: {item.service_interest}
                   </Text>
                 )}
                 {item.estimated_value != null && (
-                  <Text className="text-sm font-medium text-green-600 dark:text-green-400">
-                    ${item.estimated_value}
-                  </Text>
+                  <Text style={styles.valueText}>${item.estimated_value}</Text>
                 )}
-                <Text className="mt-1 text-xs text-dark-400">
+                <Text style={styles.dateText}>
                   {new Date(item.created_at).toLocaleDateString()}
                 </Text>
               </View>
             </View>
-          </Card>
+          </GlassCard>
         )}
         ListEmptyComponent={
           <EmptyState
@@ -190,3 +188,80 @@ export default function LeadsScreen() {
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Theme.background,
+  },
+  statsRow: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 8,
+  },
+  filterList: {
+    maxHeight: 48,
+    paddingHorizontal: 8,
+  },
+  filterChip: {
+    marginHorizontal: 4,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  filterChipActive: {
+    backgroundColor: Theme.primary,
+  },
+  filterChipInactive: {
+    backgroundColor: Theme.muted,
+  },
+  filterChipText: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: Theme.mutedForeground,
+  },
+  filterChipTextActive: {
+    color: "#ffffff",
+  },
+  leadCard: {
+    marginHorizontal: 16,
+    marginBottom: 8,
+  },
+  rowStart: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+  rowBetween: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  sourceAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: Theme.warningBg,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  nameText: {
+    fontWeight: "500",
+    color: Theme.foreground,
+  },
+  subText: {
+    fontSize: 13,
+    color: Theme.mutedForeground,
+  },
+  valueText: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: Theme.success,
+  },
+  dateText: {
+    marginTop: 4,
+    fontSize: 11,
+    color: Theme.zinc400,
+  },
+});

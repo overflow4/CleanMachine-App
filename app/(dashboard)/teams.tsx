@@ -6,17 +6,18 @@ import {
   RefreshControl,
   TouchableOpacity,
   Alert,
-  FlatList,
+  StyleSheet,
 } from "react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { fetchTeams, fetchTeamMessages, fetchTeamEarnings, manageTeam, sendEmployeeCredentials } from "@/lib/api";
-import { Card } from "@/components/ui/Card";
+import { GlassCard } from "@/components/ui/GlassCard";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { LoadingScreen } from "@/components/ui/LoadingScreen";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Theme } from "@/constants/colors";
 import { Cleaner } from "@/types";
 
 type Tab = "members" | "messages" | "earnings";
@@ -75,29 +76,21 @@ export default function TeamsScreen() {
   ];
 
   return (
-    <View className="flex-1 bg-dark-50 dark:bg-dark-900">
+    <View style={styles.container}>
       {/* Tab Selector */}
-      <View className="mx-4 mt-2 mb-3 flex-row rounded-lg bg-dark-100 p-1 dark:bg-dark-800">
+      <View style={styles.tabBar}>
         {tabs.map((tab) => (
           <TouchableOpacity
             key={tab.key}
             onPress={() => setActiveTab(tab.key)}
-            className={`flex-1 flex-row items-center justify-center rounded-md py-2.5 ${
-              activeTab === tab.key ? "bg-white dark:bg-dark-700" : ""
-            }`}
+            style={[styles.tab, activeTab === tab.key && styles.tabActive]}
           >
             <Ionicons
               name={tab.icon}
               size={16}
-              color={activeTab === tab.key ? "#3b82f6" : "#94a3b8"}
+              color={activeTab === tab.key ? Theme.primary : Theme.mutedForeground}
             />
-            <Text
-              className={`ml-1.5 text-sm font-medium ${
-                activeTab === tab.key
-                  ? "text-primary-500"
-                  : "text-dark-500 dark:text-dark-400"
-              }`}
-            >
+            <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>
               {tab.label}
             </Text>
           </TouchableOpacity>
@@ -105,13 +98,13 @@ export default function TeamsScreen() {
       </View>
 
       <ScrollView
-        className="flex-1"
+        style={{ flex: 1 }}
         refreshControl={
-          <RefreshControl refreshing={teamsQuery.isRefetching} onRefresh={onRefresh} />
+          <RefreshControl refreshing={teamsQuery.isRefetching} onRefresh={onRefresh} tintColor={Theme.primary} />
         }
       >
         {activeTab === "members" && (
-          <View className="px-4">
+          <View style={styles.listPadding}>
             {cleaners.length === 0 ? (
               <EmptyState
                 icon="people-outline"
@@ -120,22 +113,18 @@ export default function TeamsScreen() {
               />
             ) : (
               cleaners.map((cleaner, i) => (
-                <Card key={cleaner.id || i} className="mb-2">
-                  <View className="flex-row items-center">
-                    <View className="h-10 w-10 items-center justify-center rounded-full bg-purple-100 dark:bg-purple-900/30">
-                      <Text className="font-semibold text-purple-600 dark:text-purple-400">
+                <GlassCard key={cleaner.id || i} style={styles.cardSpacing}>
+                  <View style={styles.row}>
+                    <View style={styles.avatar}>
+                      <Text style={styles.avatarText}>
                         {cleaner.name?.[0]?.toUpperCase() || "?"}
                       </Text>
                     </View>
-                    <View className="ml-3 flex-1">
-                      <Text className="font-medium text-dark-900 dark:text-white">
-                        {cleaner.name}
-                      </Text>
-                      <Text className="text-sm text-dark-500 dark:text-dark-400">
-                        {cleaner.phone || "No phone"}
-                      </Text>
+                    <View style={{ marginLeft: 12, flex: 1 }}>
+                      <Text style={styles.nameText}>{cleaner.name}</Text>
+                      <Text style={styles.subText}>{cleaner.phone || "No phone"}</Text>
                     </View>
-                    <View className="items-end">
+                    <View style={{ alignItems: "flex-end" }}>
                       {cleaner.employee_type && (
                         <Badge
                           label={cleaner.employee_type}
@@ -147,7 +136,7 @@ export default function TeamsScreen() {
                       )}
                     </View>
                   </View>
-                  <View className="mt-2 flex-row justify-end">
+                  <View style={styles.actionEnd}>
                     <Button
                       title="Send Credentials"
                       variant="outline"
@@ -160,14 +149,14 @@ export default function TeamsScreen() {
                       loading={credentialsMutation.isPending}
                     />
                   </View>
-                </Card>
+                </GlassCard>
               ))
             )}
           </View>
         )}
 
         {activeTab === "messages" && (
-          <View className="px-4">
+          <View style={styles.listPadding}>
             {messages.length === 0 ? (
               <EmptyState
                 icon="chatbubbles-outline"
@@ -176,29 +165,29 @@ export default function TeamsScreen() {
               />
             ) : (
               messages.map((msg, i) => (
-                <Card key={i} className="mb-2">
-                  <View className="flex-row items-start">
-                    <Ionicons name="chatbubble-outline" size={16} color="#94a3b8" />
-                    <View className="ml-2 flex-1">
-                      <Text className="font-medium text-dark-900 dark:text-white">
+                <GlassCard key={i} style={styles.cardSpacing}>
+                  <View style={styles.rowStart}>
+                    <Ionicons name="chatbubble-outline" size={16} color={Theme.mutedForeground} />
+                    <View style={{ marginLeft: 8, flex: 1 }}>
+                      <Text style={styles.nameText}>
                         {msg.sender_name || msg.cleaner_name || "Unknown"}
                       </Text>
-                      <Text className="text-sm text-dark-700 dark:text-dark-300">
+                      <Text style={styles.bodyText}>
                         {msg.content || msg.message || ""}
                       </Text>
-                      <Text className="mt-1 text-xs text-dark-400">
+                      <Text style={styles.timestampText}>
                         {msg.created_at ? new Date(msg.created_at).toLocaleString() : ""}
                       </Text>
                     </View>
                   </View>
-                </Card>
+                </GlassCard>
               ))
             )}
           </View>
         )}
 
         {activeTab === "earnings" && (
-          <View className="px-4">
+          <View style={styles.listPadding}>
             {earnings.length === 0 ? (
               <EmptyState
                 icon="cash-outline"
@@ -207,21 +196,21 @@ export default function TeamsScreen() {
               />
             ) : (
               earnings.map((item, i) => (
-                <Card key={i} className="mb-2">
-                  <View className="flex-row items-center justify-between">
+                <GlassCard key={i} style={styles.cardSpacing}>
+                  <View style={styles.rowBetween}>
                     <View>
-                      <Text className="font-medium text-dark-900 dark:text-white">
+                      <Text style={styles.nameText}>
                         {item.cleaner_name || item.name || `Cleaner ${i + 1}`}
                       </Text>
-                      <Text className="text-sm text-dark-500 dark:text-dark-400">
+                      <Text style={styles.subText}>
                         {item.jobs_completed ?? 0} jobs
                       </Text>
                     </View>
-                    <Text className="text-lg font-bold text-green-600 dark:text-green-400">
+                    <Text style={styles.earningsValue}>
                       ${item.total_earnings ?? item.revenue ?? 0}
                     </Text>
                   </View>
-                </Card>
+                </GlassCard>
               ))
             )}
           </View>
@@ -230,3 +219,98 @@ export default function TeamsScreen() {
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Theme.background,
+  },
+  tabBar: {
+    flexDirection: "row",
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 12,
+    borderRadius: 8,
+    backgroundColor: Theme.muted,
+    padding: 4,
+  },
+  tab: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 6,
+    paddingVertical: 10,
+  },
+  tabActive: {
+    backgroundColor: Theme.card,
+  },
+  tabText: {
+    marginLeft: 6,
+    fontSize: 13,
+    fontWeight: "500",
+    color: Theme.mutedForeground,
+  },
+  tabTextActive: {
+    color: Theme.primary,
+  },
+  listPadding: {
+    paddingHorizontal: 16,
+  },
+  cardSpacing: {
+    marginBottom: 8,
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  rowStart: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+  rowBetween: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  avatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: Theme.primaryMuted,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarText: {
+    fontWeight: "600",
+    color: Theme.primaryLight,
+  },
+  nameText: {
+    fontWeight: "500",
+    color: Theme.foreground,
+  },
+  subText: {
+    fontSize: 13,
+    color: Theme.mutedForeground,
+  },
+  bodyText: {
+    fontSize: 13,
+    color: Theme.foreground,
+    opacity: 0.8,
+  },
+  timestampText: {
+    marginTop: 4,
+    fontSize: 11,
+    color: Theme.zinc400,
+  },
+  actionEnd: {
+    marginTop: 8,
+    flexDirection: "row",
+    justifyContent: "flex-end",
+  },
+  earningsValue: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: Theme.success,
+  },
+});

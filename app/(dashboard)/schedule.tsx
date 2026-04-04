@@ -1,12 +1,13 @@
 import React, { useState } from "react";
-import { View, Text, ScrollView, RefreshControl, TouchableOpacity } from "react-native";
+import { View, Text, ScrollView, RefreshControl, TouchableOpacity, StyleSheet } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import { fetchMyJobs, fetchCrews } from "@/lib/api";
-import { Card } from "@/components/ui/Card";
+import { GlassCard } from "@/components/ui/GlassCard";
 import { Badge } from "@/components/ui/Badge";
 import { LoadingScreen } from "@/components/ui/LoadingScreen";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Theme } from "@/constants/colors";
 import { Job } from "@/types";
 
 type ViewMode = "day" | "week";
@@ -38,44 +39,40 @@ export default function ScheduleScreen() {
 
   return (
     <ScrollView
-      className="flex-1 bg-dark-50 dark:bg-dark-900"
-      refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} />}
+      style={styles.container}
+      refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} tintColor={Theme.primary} />}
     >
-      <View className="p-4">
+      <View style={styles.content}>
         {/* View Mode Toggle */}
-        <View className="mb-3 flex-row rounded-lg bg-dark-100 p-1 dark:bg-dark-800">
+        <View style={styles.tabBar}>
           {(["day", "week"] as ViewMode[]).map((mode) => (
             <TouchableOpacity
               key={mode}
               onPress={() => setViewMode(mode)}
-              className={`flex-1 items-center rounded-md py-2 ${
-                viewMode === mode ? "bg-white dark:bg-dark-700" : ""
-              }`}
+              style={[styles.tab, viewMode === mode && styles.tabActive]}
             >
-              <Text className={`text-sm font-medium capitalize ${
-                viewMode === mode ? "text-primary-500" : "text-dark-500 dark:text-dark-400"
-              }`}>
-                {mode}
+              <Text style={[styles.tabText, viewMode === mode && styles.tabTextActive]}>
+                {mode.charAt(0).toUpperCase() + mode.slice(1)}
               </Text>
             </TouchableOpacity>
           ))}
         </View>
 
         {/* Date Nav */}
-        <View className="mb-4 flex-row items-center justify-between">
+        <View style={styles.dateNav}>
           <TouchableOpacity onPress={() => navigateDate(-1)}>
-            <Ionicons name="chevron-back" size={24} color="#3b82f6" />
+            <Ionicons name="chevron-back" size={24} color={Theme.primary} />
           </TouchableOpacity>
-          <Text className="text-base font-semibold text-dark-900 dark:text-white">
+          <Text style={styles.dateLabel}>
             {new Date(date + "T12:00:00").toLocaleDateString("en-US", {
               weekday: "short", month: "short", day: "numeric",
             })}
-            {dateRange?.end && ` — ${new Date(dateRange.end + "T12:00:00").toLocaleDateString("en-US", {
+            {dateRange?.end && ` \u2014 ${new Date(dateRange.end + "T12:00:00").toLocaleDateString("en-US", {
               month: "short", day: "numeric",
             })}`}
           </Text>
           <TouchableOpacity onPress={() => navigateDate(1)}>
-            <Ionicons name="chevron-forward" size={24} color="#3b82f6" />
+            <Ionicons name="chevron-forward" size={24} color={Theme.primary} />
           </TouchableOpacity>
         </View>
 
@@ -84,17 +81,17 @@ export default function ScheduleScreen() {
           <EmptyState icon="calendar-outline" title="No jobs scheduled" description="No jobs for this period" />
         ) : (
           jobs.map((job, i) => (
-            <Card key={job.id || i} className="mb-2">
-              <View className="flex-row items-start justify-between">
-                <View className="flex-1">
-                  <Text className="font-medium text-dark-900 dark:text-white">
+            <GlassCard key={job.id || i} style={styles.card}>
+              <View style={styles.rowBetween}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.nameText}>
                     {job.customer_name || job.phone_number || "Job"}
                   </Text>
-                  <Text className="text-sm text-dark-500 dark:text-dark-400">
-                    {job.scheduled_time || job.scheduled_at || ""} • {job.service_type || "Service"}
+                  <Text style={styles.subText}>
+                    {job.scheduled_time || job.scheduled_at || ""} {"\u2022"} {job.service_type || "Service"}
                   </Text>
                   {job.address && (
-                    <Text className="text-xs text-dark-400" numberOfLines={1}>{job.address}</Text>
+                    <Text style={styles.addressText} numberOfLines={1}>{job.address}</Text>
                   )}
                 </View>
                 <Badge
@@ -103,12 +100,83 @@ export default function ScheduleScreen() {
                 />
               </View>
               {job.price != null && (
-                <Text className="mt-1 text-sm font-medium text-green-600">${job.price}</Text>
+                <Text style={styles.priceText}>${job.price}</Text>
               )}
-            </Card>
+            </GlassCard>
           ))
         )}
       </View>
     </ScrollView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Theme.background,
+  },
+  content: {
+    padding: 16,
+  },
+  tabBar: {
+    flexDirection: "row",
+    borderRadius: 8,
+    backgroundColor: Theme.muted,
+    padding: 4,
+    marginBottom: 12,
+  },
+  tab: {
+    flex: 1,
+    alignItems: "center",
+    borderRadius: 6,
+    paddingVertical: 8,
+  },
+  tabActive: {
+    backgroundColor: Theme.card,
+  },
+  tabText: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: Theme.mutedForeground,
+  },
+  tabTextActive: {
+    color: Theme.primary,
+  },
+  dateNav: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 16,
+  },
+  dateLabel: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: Theme.foreground,
+  },
+  card: {
+    marginBottom: 8,
+  },
+  rowBetween: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+  },
+  nameText: {
+    fontWeight: "500",
+    color: Theme.foreground,
+  },
+  subText: {
+    fontSize: 13,
+    color: Theme.mutedForeground,
+  },
+  addressText: {
+    fontSize: 11,
+    color: Theme.zinc400,
+  },
+  priceText: {
+    marginTop: 4,
+    fontSize: 13,
+    fontWeight: "500",
+    color: Theme.success,
+  },
+});

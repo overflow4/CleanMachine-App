@@ -1,11 +1,12 @@
 import React, { useState } from "react";
-import { View, Text, ScrollView, RefreshControl, TextInput, Alert } from "react-native";
+import { View, Text, ScrollView, RefreshControl, TextInput, Alert, StyleSheet } from "react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { fetchSettings, updateSettings } from "@/lib/api";
-import { Card } from "@/components/ui/Card";
+import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
 import { LoadingScreen } from "@/components/ui/LoadingScreen";
+import { Theme } from "@/constants/colors";
 import { TenantSettings } from "@/types";
 
 export default function SettingsScreen() {
@@ -38,21 +39,21 @@ export default function SettingsScreen() {
 
   return (
     <ScrollView
-      className="flex-1 bg-dark-50 dark:bg-dark-900"
-      refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} />}
+      style={styles.container}
+      refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} tintColor={Theme.primary} />}
     >
-      <View className="p-4">
-        <Card>
+      <View style={styles.content}>
+        <GlassCard>
           {fields.map(([key, value]) => (
-            <View key={key} className="mb-3">
-              <Text className="mb-1 text-sm font-medium text-dark-500 dark:text-dark-400 capitalize">
+            <View key={key} style={styles.fieldGroup}>
+              <Text style={styles.fieldLabel}>
                 {key.replace(/_/g, " ")}
               </Text>
               <TextInput
                 defaultValue={String(value ?? "")}
                 onChangeText={(v) => setEdits((prev) => ({ ...prev, [key]: v }))}
-                className="rounded-lg border border-dark-300 bg-white px-3 py-2.5 text-dark-900 dark:border-dark-600 dark:bg-dark-800 dark:text-white"
-                placeholderTextColor="#94a3b8"
+                style={styles.input}
+                placeholderTextColor={Theme.mutedForeground}
               />
             </View>
           ))}
@@ -63,8 +64,38 @@ export default function SettingsScreen() {
               loading={saveMutation.isPending}
             />
           )}
-        </Card>
+        </GlassCard>
       </View>
     </ScrollView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Theme.background,
+  },
+  content: {
+    padding: 16,
+  },
+  fieldGroup: {
+    marginBottom: 12,
+  },
+  fieldLabel: {
+    marginBottom: 4,
+    fontSize: 13,
+    fontWeight: "500",
+    color: Theme.mutedForeground,
+    textTransform: "capitalize",
+  },
+  input: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Theme.border,
+    backgroundColor: Theme.muted,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: Theme.foreground,
+    fontSize: 15,
+  },
+});

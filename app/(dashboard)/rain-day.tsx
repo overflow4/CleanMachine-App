@@ -1,20 +1,18 @@
 import React, { useState } from "react";
-import { View, Text, ScrollView, RefreshControl, Alert } from "react-native";
+import { View, Text, ScrollView, RefreshControl, Alert, StyleSheet } from "react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Calendar, DateData } from "react-native-calendars";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { fetchJobs, apiFetch } from "@/lib/api";
-import { Card } from "@/components/ui/Card";
+import { GlassCard } from "@/components/ui/GlassCard";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { LoadingScreen } from "@/components/ui/LoadingScreen";
+import { Theme } from "@/constants/colors";
 import { Job } from "@/types";
-import { useColorScheme } from "react-native";
 
 export default function RainDayScreen() {
-  const scheme = useColorScheme();
-  const isDark = scheme === "dark";
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
   const queryClient = useQueryClient();
 
@@ -66,32 +64,30 @@ export default function RainDayScreen() {
 
   return (
     <ScrollView
-      className="flex-1 bg-dark-50 dark:bg-dark-900"
-      refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} />}
+      style={styles.container}
+      refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} tintColor={Theme.primary} />}
     >
       <Calendar
         current={selectedDate}
         onDayPress={(day: DateData) => setSelectedDate(day.dateString)}
-        markedDates={{ [selectedDate]: { selected: true, selectedColor: "#3b82f6" } }}
+        markedDates={{ [selectedDate]: { selected: true, selectedColor: Theme.primary } }}
         theme={{
-          backgroundColor: isDark ? "#0f172a" : "#ffffff",
-          calendarBackground: isDark ? "#0f172a" : "#ffffff",
-          selectedDayBackgroundColor: "#3b82f6",
-          todayTextColor: "#3b82f6",
-          dayTextColor: isDark ? "#f8fafc" : "#0f172a",
-          textDisabledColor: isDark ? "#334155" : "#cbd5e1",
-          monthTextColor: isDark ? "#f8fafc" : "#0f172a",
-          arrowColor: "#3b82f6",
+          backgroundColor: Theme.background,
+          calendarBackground: Theme.background,
+          selectedDayBackgroundColor: Theme.primary,
+          todayTextColor: Theme.primary,
+          dayTextColor: Theme.foreground,
+          textDisabledColor: Theme.zinc600,
+          monthTextColor: Theme.foreground,
+          arrowColor: Theme.primary,
         }}
       />
 
-      <View className="p-4">
-        <View className="mb-3 flex-row items-center justify-between">
-          <View className="flex-row items-center">
-            <Ionicons name="rainy" size={24} color="#64748b" />
-            <Text className="ml-2 text-lg font-semibold text-dark-900 dark:text-white">
-              Rain Day Tool
-            </Text>
+      <View style={styles.content}>
+        <View style={styles.headerRow}>
+          <View style={styles.headerLeft}>
+            <Ionicons name="rainy" size={24} color={Theme.mutedForeground} />
+            <Text style={styles.headerTitle}>Rain Day Tool</Text>
           </View>
           <Badge label={`${outdoorJobs.length} jobs`} variant="warning" />
         </View>
@@ -103,24 +99,69 @@ export default function RainDayScreen() {
           disabled={outdoorJobs.length === 0}
         />
 
-        <View className="mt-4">
+        <View style={styles.jobList}>
           {outdoorJobs.map((job, i) => (
-            <Card key={job.id || i} className="mb-2">
-              <View className="flex-row items-center justify-between">
-                <View className="flex-1">
-                  <Text className="font-medium text-dark-900 dark:text-white">
+            <GlassCard key={job.id || i} style={styles.card}>
+              <View style={styles.rowBetween}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.nameText}>
                     {job.customer_name || job.phone_number || "Job"}
                   </Text>
-                  <Text className="text-sm text-dark-500 dark:text-dark-400">
-                    {job.service_type} • {job.scheduled_time || ""}
+                  <Text style={styles.subText}>
+                    {job.service_type} {"\u2022"} {job.scheduled_time || ""}
                   </Text>
                 </View>
                 <Badge label={job.status || "scheduled"} variant="default" />
               </View>
-            </Card>
+            </GlassCard>
           ))}
         </View>
       </View>
     </ScrollView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Theme.background,
+  },
+  content: {
+    padding: 16,
+  },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  headerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  headerTitle: {
+    marginLeft: 8,
+    fontSize: 18,
+    fontWeight: "600",
+    color: Theme.foreground,
+  },
+  jobList: {
+    marginTop: 16,
+  },
+  card: {
+    marginBottom: 8,
+  },
+  rowBetween: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  nameText: {
+    fontWeight: "500",
+    color: Theme.foreground,
+  },
+  subText: {
+    fontSize: 13,
+    color: Theme.mutedForeground,
+  },
+});

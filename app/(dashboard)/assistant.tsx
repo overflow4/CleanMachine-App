@@ -8,10 +8,12 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  StyleSheet,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { brainQuery } from "@/lib/api";
+import { Theme } from "@/constants/colors";
 
 interface ChatMessage {
   id: string;
@@ -76,52 +78,47 @@ export default function AssistantScreen() {
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : undefined}
-      className="flex-1 bg-dark-50 dark:bg-dark-900"
+      style={styles.container}
       keyboardVerticalOffset={90}
     >
       <FlatList
         ref={flatListRef}
         data={messages}
         keyExtractor={(item) => item.id}
-        className="flex-1 px-4"
+        style={styles.messageList}
         onContentSizeChange={() =>
           flatListRef.current?.scrollToEnd({ animated: true })
         }
         renderItem={({ item }) => (
           <View
-            className={`mb-3 max-w-[85%] ${
-              item.role === "user" ? "self-end" : "self-start"
-            }`}
+            style={[
+              styles.messageBubbleWrapper,
+              item.role === "user" ? styles.userAlign : styles.assistantAlign,
+            ]}
           >
             {item.role === "assistant" && (
-              <View className="mb-1 flex-row items-center">
-                <Ionicons name="sparkles" size={14} color="#8b5cf6" />
-                <Text className="ml-1 text-xs font-medium text-purple-600 dark:text-purple-400">
-                  AI Assistant
-                </Text>
+              <View style={styles.assistantLabel}>
+                <Ionicons name="sparkles" size={14} color={Theme.primaryLight} />
+                <Text style={styles.assistantLabelText}>AI Assistant</Text>
               </View>
             )}
             <View
-              className={`rounded-2xl p-3 ${
-                item.role === "user"
-                  ? "bg-primary-500"
-                  : "bg-white dark:bg-dark-800"
-              }`}
+              style={[
+                styles.bubble,
+                item.role === "user" ? styles.userBubble : styles.assistantBubble,
+              ]}
             >
               <Text
-                className={
-                  item.role === "user"
-                    ? "text-white"
-                    : "text-dark-900 dark:text-white"
-                }
+                style={item.role === "user" ? styles.userBubbleText : styles.assistantBubbleText}
               >
                 {item.content}
               </Text>
             </View>
             <Text
-              className={`mt-0.5 text-xs ${
-                item.role === "user" ? "text-right" : ""
-              } text-dark-400`}
+              style={[
+                styles.timestamp,
+                item.role === "user" ? { textAlign: "right" } : {},
+              ]}
             >
               {item.timestamp.toLocaleTimeString([], {
                 hour: "2-digit",
@@ -133,32 +130,29 @@ export default function AssistantScreen() {
       />
 
       {isLoading && (
-        <View className="flex-row items-center px-4 py-2">
-          <ActivityIndicator size="small" color="#8b5cf6" />
-          <Text className="ml-2 text-sm text-dark-500 dark:text-dark-400">
-            Thinking...
-          </Text>
+        <View style={styles.loadingRow}>
+          <ActivityIndicator size="small" color={Theme.primaryLight} />
+          <Text style={styles.loadingText}>Thinking...</Text>
         </View>
       )}
 
-      <View className="flex-row items-end border-t border-dark-200 bg-white p-3 dark:border-dark-700 dark:bg-dark-800">
+      <View style={styles.inputBar}>
         <TextInput
           value={input}
           onChangeText={setInput}
           placeholder="Ask anything..."
-          placeholderTextColor="#94a3b8"
+          placeholderTextColor={Theme.mutedForeground}
           multiline
-          className="mr-2 max-h-24 flex-1 rounded-xl bg-dark-100 px-4 py-2.5 text-base text-dark-900 dark:bg-dark-700 dark:text-white"
+          style={styles.textInput}
           onSubmitEditing={handleSend}
         />
         <TouchableOpacity
           onPress={handleSend}
           disabled={!input.trim() || isLoading}
-          className={`h-10 w-10 items-center justify-center rounded-full ${
-            input.trim() && !isLoading
-              ? "bg-purple-500"
-              : "bg-dark-300 dark:bg-dark-600"
-          }`}
+          style={[
+            styles.sendButton,
+            input.trim() && !isLoading ? styles.sendButtonActive : styles.sendButtonDisabled,
+          ]}
         >
           <Ionicons name="sparkles" size={18} color="white" />
         </TouchableOpacity>
@@ -166,3 +160,101 @@ export default function AssistantScreen() {
     </KeyboardAvoidingView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Theme.background,
+  },
+  messageList: {
+    flex: 1,
+    paddingHorizontal: 16,
+  },
+  messageBubbleWrapper: {
+    marginBottom: 12,
+    maxWidth: "85%",
+  },
+  userAlign: {
+    alignSelf: "flex-end",
+  },
+  assistantAlign: {
+    alignSelf: "flex-start",
+  },
+  assistantLabel: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  assistantLabelText: {
+    marginLeft: 4,
+    fontSize: 11,
+    fontWeight: "500",
+    color: Theme.primaryLight,
+  },
+  bubble: {
+    borderRadius: 16,
+    padding: 12,
+  },
+  userBubble: {
+    backgroundColor: Theme.primary,
+  },
+  assistantBubble: {
+    backgroundColor: Theme.card,
+  },
+  userBubbleText: {
+    color: "#ffffff",
+    fontSize: 15,
+  },
+  assistantBubbleText: {
+    color: Theme.foreground,
+    fontSize: 15,
+  },
+  timestamp: {
+    marginTop: 2,
+    fontSize: 11,
+    color: Theme.zinc400,
+  },
+  loadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  loadingText: {
+    marginLeft: 8,
+    fontSize: 13,
+    color: Theme.mutedForeground,
+  },
+  inputBar: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    borderTopWidth: 1,
+    borderTopColor: Theme.border,
+    backgroundColor: Theme.card,
+    padding: 12,
+  },
+  textInput: {
+    flex: 1,
+    marginRight: 8,
+    maxHeight: 96,
+    borderRadius: 12,
+    backgroundColor: Theme.muted,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: Theme.foreground,
+  },
+  sendButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sendButtonActive: {
+    backgroundColor: Theme.primary,
+  },
+  sendButtonDisabled: {
+    backgroundColor: Theme.zinc600,
+  },
+});

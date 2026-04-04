@@ -16,15 +16,13 @@ const queryClient = new QueryClient({
 });
 
 export default function RootLayout() {
-  const scheme = useColorScheme();
-
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <StatusBar style={scheme === "dark" ? "light" : "dark"} />
+        <StatusBar style="light" />
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="login" />
-          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="(dashboard)" />
         </Stack>
       </AuthProvider>
     </QueryClientProvider>

@@ -1,13 +1,14 @@
 import React, { useState } from "react";
-import { View, Text, ScrollView, RefreshControl, TouchableOpacity } from "react-native";
+import { View, Text, ScrollView, RefreshControl, TouchableOpacity, StyleSheet } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import { fetchRetargetingCustomers, fetchRetargetingPipeline, fetchRetargetingAbResults } from "@/lib/api";
-import { Card } from "@/components/ui/Card";
+import { GlassCard } from "@/components/ui/GlassCard";
 import { Badge } from "@/components/ui/Badge";
 import { StatCard } from "@/components/ui/StatCard";
 import { LoadingScreen } from "@/components/ui/LoadingScreen";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Theme } from "@/constants/colors";
 
 type Tab = "customers" | "pipeline" | "ab_results";
 
@@ -56,19 +57,15 @@ export default function RetargetingScreen() {
   ];
 
   return (
-    <View className="flex-1 bg-dark-50 dark:bg-dark-900">
-      <View className="mx-4 mt-2 mb-3 flex-row rounded-lg bg-dark-100 p-1 dark:bg-dark-800">
+    <View style={styles.container}>
+      <View style={styles.tabBar}>
         {tabs.map((tab) => (
           <TouchableOpacity
             key={tab.key}
             onPress={() => setActiveTab(tab.key)}
-            className={`flex-1 items-center rounded-md py-2.5 ${
-              activeTab === tab.key ? "bg-white dark:bg-dark-700" : ""
-            }`}
+            style={[styles.tab, activeTab === tab.key && styles.tabActive]}
           >
-            <Text className={`text-sm font-medium ${
-              activeTab === tab.key ? "text-primary-500" : "text-dark-500 dark:text-dark-400"
-            }`}>
+            <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>
               {tab.label}
             </Text>
           </TouchableOpacity>
@@ -76,22 +73,22 @@ export default function RetargetingScreen() {
       </View>
 
       <ScrollView
-        className="flex-1 px-4"
-        refreshControl={<RefreshControl refreshing={false} onRefresh={onRefresh} />}
+        style={styles.scrollContent}
+        refreshControl={<RefreshControl refreshing={false} onRefresh={onRefresh} tintColor={Theme.primary} />}
       >
         {activeTab === "customers" &&
           (customers.length === 0 ? (
             <EmptyState icon="refresh-outline" title="No retargeting customers" />
           ) : (
             customers.map((c, i) => (
-              <Card key={i} className="mb-2">
-                <Text className="font-medium text-dark-900 dark:text-white">
+              <GlassCard key={i} style={styles.card}>
+                <Text style={styles.nameText}>
                   {c.first_name || c.name || c.phone_number || "Customer"}
                 </Text>
-                <Text className="text-sm text-dark-500 dark:text-dark-400">
-                  {c.phone_number || ""} • Last service: {c.last_service_date || "N/A"}
+                <Text style={styles.subText}>
+                  {c.phone_number || ""} {"\u2022"} Last service: {c.last_service_date || "N/A"}
                 </Text>
-              </Card>
+              </GlassCard>
             ))
           ))}
 
@@ -99,14 +96,14 @@ export default function RetargetingScreen() {
           <View>
             {Object.entries(pipeline).map(([stage, data]: [string, any]) =>
               data && typeof data === "object" ? (
-                <Card key={stage} className="mb-2">
-                  <View className="flex-row items-center justify-between">
-                    <Text className="font-medium capitalize text-dark-900 dark:text-white">
+                <GlassCard key={stage} style={styles.card}>
+                  <View style={styles.rowBetween}>
+                    <Text style={styles.stageText}>
                       {stage.replace(/_/g, " ")}
                     </Text>
                     <Badge label={`${data.count ?? 0}`} variant="info" />
                   </View>
-                </Card>
+                </GlassCard>
               ) : null
             )}
           </View>
@@ -117,25 +114,92 @@ export default function RetargetingScreen() {
             <EmptyState icon="flask-outline" title="No A/B test results" />
           ) : (
             abResults.map((result, i) => (
-              <Card key={i} className="mb-2">
-                <Text className="font-medium text-dark-900 dark:text-white">
+              <GlassCard key={i} style={styles.card}>
+                <Text style={styles.nameText}>
                   {result.name || `Test ${i + 1}`}
                 </Text>
-                <Text className="text-sm text-dark-500 dark:text-dark-400">
+                <Text style={styles.subText}>
                   {result.description || ""}
                 </Text>
-                <View className="mt-2 flex-row justify-between">
-                  <Text className="text-sm text-dark-400">
+                <View style={styles.variantRow}>
+                  <Text style={styles.variantText}>
                     Variant A: {result.variant_a_rate ?? "N/A"}%
                   </Text>
-                  <Text className="text-sm text-dark-400">
+                  <Text style={styles.variantText}>
                     Variant B: {result.variant_b_rate ?? "N/A"}%
                   </Text>
                 </View>
-              </Card>
+              </GlassCard>
             ))
           ))}
       </ScrollView>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Theme.background,
+  },
+  tabBar: {
+    flexDirection: "row",
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 12,
+    borderRadius: 8,
+    backgroundColor: Theme.muted,
+    padding: 4,
+  },
+  tab: {
+    flex: 1,
+    alignItems: "center",
+    borderRadius: 6,
+    paddingVertical: 10,
+  },
+  tabActive: {
+    backgroundColor: Theme.card,
+  },
+  tabText: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: Theme.mutedForeground,
+  },
+  tabTextActive: {
+    color: Theme.primary,
+  },
+  scrollContent: {
+    flex: 1,
+    paddingHorizontal: 16,
+  },
+  card: {
+    marginBottom: 8,
+  },
+  nameText: {
+    fontWeight: "500",
+    color: Theme.foreground,
+  },
+  subText: {
+    fontSize: 13,
+    color: Theme.mutedForeground,
+  },
+  rowBetween: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  stageText: {
+    fontWeight: "500",
+    textTransform: "capitalize",
+    color: Theme.foreground,
+  },
+  variantRow: {
+    marginTop: 8,
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  variantText: {
+    fontSize: 13,
+    color: Theme.zinc400,
+  },
+});

@@ -7,17 +7,18 @@ import {
   TouchableOpacity,
   Alert,
   TextInput,
+  StyleSheet,
 } from "react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { fetchSettings, updateSettings, fetchTeams, manageTeam } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Card } from "@/components/ui/Card";
+import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
 import { LoadingScreen } from "@/components/ui/LoadingScreen";
+import { Theme } from "@/constants/colors";
 import { Cleaner, TenantSettings } from "@/types";
 
 type Tab = "settings" | "cleaners" | "tenant";
@@ -85,21 +86,15 @@ export default function AdminScreen() {
   ];
 
   return (
-    <View className="flex-1 bg-dark-50 dark:bg-dark-900">
-      <View className="mx-4 mt-2 mb-3 flex-row rounded-lg bg-dark-100 p-1 dark:bg-dark-800">
+    <View style={styles.container}>
+      <View style={styles.tabBar}>
         {tabs.map((tab) => (
           <TouchableOpacity
             key={tab.key}
             onPress={() => setActiveTab(tab.key)}
-            className={`flex-1 items-center rounded-md py-2.5 ${
-              activeTab === tab.key ? "bg-white dark:bg-dark-700" : ""
-            }`}
+            style={[styles.tab, activeTab === tab.key && styles.tabActive]}
           >
-            <Text
-              className={`text-sm font-medium ${
-                activeTab === tab.key ? "text-primary-500" : "text-dark-500 dark:text-dark-400"
-              }`}
-            >
+            <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>
               {tab.label}
             </Text>
           </TouchableOpacity>
@@ -107,22 +102,20 @@ export default function AdminScreen() {
       </View>
 
       <ScrollView
-        className="flex-1"
-        refreshControl={<RefreshControl refreshing={settingsQuery.isRefetching} onRefresh={onRefresh} />}
+        style={{ flex: 1 }}
+        refreshControl={<RefreshControl refreshing={settingsQuery.isRefetching} onRefresh={onRefresh} tintColor={Theme.primary} />}
       >
         {activeTab === "settings" && (
-          <View className="px-4">
-            <Card className="mb-4">
+          <View style={styles.listPadding}>
+            <GlassCard style={styles.formCard}>
               {settingsFields.map((field) => (
-                <View key={field.key} className="mb-3">
-                  <Text className="mb-1 text-sm font-medium text-dark-500 dark:text-dark-400">
-                    {field.label}
-                  </Text>
+                <View key={field.key} style={styles.fieldGroup}>
+                  <Text style={styles.fieldLabel}>{field.label}</Text>
                   <TextInput
                     defaultValue={(settings[field.key] ?? "").toString()}
                     onChangeText={(v) => updateField(field.key, v)}
-                    className="rounded-lg border border-dark-300 bg-white px-3 py-2.5 text-dark-900 dark:border-dark-600 dark:bg-dark-800 dark:text-white"
-                    placeholderTextColor="#94a3b8"
+                    style={styles.input}
+                    placeholderTextColor={Theme.mutedForeground}
                   />
                 </View>
               ))}
@@ -131,52 +124,48 @@ export default function AdminScreen() {
                 onPress={handleSaveSettings}
                 loading={settingsMutation.isPending}
               />
-            </Card>
+            </GlassCard>
           </View>
         )}
 
         {activeTab === "cleaners" && (
-          <View className="px-4">
+          <View style={styles.listPadding}>
             {cleaners.map((cleaner, i) => (
-              <Card key={cleaner.id || i} className="mb-2">
-                <View className="flex-row items-center">
-                  <View className="h-10 w-10 items-center justify-center rounded-full bg-purple-100 dark:bg-purple-900/30">
-                    <Text className="font-semibold text-purple-600">{cleaner.name?.[0]?.toUpperCase()}</Text>
+              <GlassCard key={cleaner.id || i} style={styles.cardSpacing}>
+                <View style={styles.row}>
+                  <View style={styles.avatar}>
+                    <Text style={styles.avatarText}>{cleaner.name?.[0]?.toUpperCase()}</Text>
                   </View>
-                  <View className="ml-3 flex-1">
-                    <Text className="font-medium text-dark-900 dark:text-white">{cleaner.name}</Text>
-                    <Text className="text-sm text-dark-500 dark:text-dark-400">{cleaner.phone || cleaner.email || ""}</Text>
+                  <View style={{ marginLeft: 12, flex: 1 }}>
+                    <Text style={styles.nameText}>{cleaner.name}</Text>
+                    <Text style={styles.subText}>{cleaner.phone || cleaner.email || ""}</Text>
                   </View>
-                  <View className="items-end">
+                  <View style={{ alignItems: "flex-end" }}>
                     <Badge
                       label={cleaner.active ? "Active" : "Inactive"}
                       variant={cleaner.active ? "success" : "error"}
                     />
                     {cleaner.employee_type && (
-                      <Text className="mt-1 text-xs text-dark-400">{cleaner.employee_type}</Text>
+                      <Text style={styles.employeeType}>{cleaner.employee_type}</Text>
                     )}
                   </View>
                 </View>
-              </Card>
+              </GlassCard>
             ))}
           </View>
         )}
 
         {activeTab === "tenant" && (
-          <View className="px-4">
-            <Card>
-              <Text className="mb-3 text-lg font-semibold text-dark-900 dark:text-white">
-                Tenant Information
-              </Text>
+          <View style={styles.listPadding}>
+            <GlassCard>
+              <Text style={styles.sectionTitle}>Tenant Information</Text>
               <InfoRow label="Name" value={tenant?.name} />
               <InfoRow label="Business" value={tenant?.business_name} />
               <InfoRow label="Slug" value={tenant?.slug} />
               <InfoRow label="Status" value={tenant?.active ? "Active" : "Inactive"} />
               {tenant?.workflow_config && (
                 <>
-                  <Text className="mt-3 mb-2 text-sm font-semibold text-dark-700 dark:text-dark-300">
-                    Workflow Config
-                  </Text>
+                  <Text style={styles.subsectionTitle}>Workflow Config</Text>
                   <InfoRow label="Stripe" value={tenant.workflow_config.use_stripe ? "Enabled" : "Disabled"} />
                   <InfoRow label="Auto Assignment" value={tenant.workflow_config.cleaner_assignment_auto ? "On" : "Off"} />
                   <InfoRow label="Assignment Mode" value={tenant.workflow_config.assignment_mode || "N/A"} />
@@ -184,7 +173,7 @@ export default function AdminScreen() {
                   <InfoRow label="Lead Followup" value={tenant.workflow_config.lead_followup_enabled ? `${tenant.workflow_config.lead_followup_stages} stages` : "Off"} />
                 </>
               )}
-            </Card>
+            </GlassCard>
           </View>
         )}
       </ScrollView>
@@ -194,9 +183,129 @@ export default function AdminScreen() {
 
 function InfoRow({ label, value }: { label: string; value?: string | null }) {
   return (
-    <View className="flex-row justify-between border-b border-dark-100 py-2.5 dark:border-dark-700">
-      <Text className="text-dark-500 dark:text-dark-400">{label}</Text>
-      <Text className="font-medium text-dark-900 dark:text-white">{value || "—"}</Text>
+    <View style={infoStyles.row}>
+      <Text style={infoStyles.label}>{label}</Text>
+      <Text style={infoStyles.value}>{value || "\u2014"}</Text>
     </View>
   );
 }
+
+const infoStyles = StyleSheet.create({
+  row: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    borderBottomWidth: 1,
+    borderBottomColor: Theme.border,
+    paddingVertical: 10,
+  },
+  label: {
+    color: Theme.mutedForeground,
+  },
+  value: {
+    fontWeight: "500",
+    color: Theme.foreground,
+  },
+});
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Theme.background,
+  },
+  tabBar: {
+    flexDirection: "row",
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 12,
+    borderRadius: 8,
+    backgroundColor: Theme.muted,
+    padding: 4,
+  },
+  tab: {
+    flex: 1,
+    alignItems: "center",
+    borderRadius: 6,
+    paddingVertical: 10,
+  },
+  tabActive: {
+    backgroundColor: Theme.card,
+  },
+  tabText: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: Theme.mutedForeground,
+  },
+  tabTextActive: {
+    color: Theme.primary,
+  },
+  listPadding: {
+    paddingHorizontal: 16,
+  },
+  formCard: {
+    marginBottom: 16,
+  },
+  fieldGroup: {
+    marginBottom: 12,
+  },
+  fieldLabel: {
+    marginBottom: 4,
+    fontSize: 13,
+    fontWeight: "500",
+    color: Theme.mutedForeground,
+  },
+  input: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Theme.border,
+    backgroundColor: Theme.muted,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: Theme.foreground,
+    fontSize: 15,
+  },
+  cardSpacing: {
+    marginBottom: 8,
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  avatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: Theme.primaryMuted,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarText: {
+    fontWeight: "600",
+    color: Theme.primaryLight,
+  },
+  nameText: {
+    fontWeight: "500",
+    color: Theme.foreground,
+  },
+  subText: {
+    fontSize: 13,
+    color: Theme.mutedForeground,
+  },
+  employeeType: {
+    marginTop: 4,
+    fontSize: 11,
+    color: Theme.zinc400,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: Theme.foreground,
+    marginBottom: 12,
+  },
+  subsectionTitle: {
+    marginTop: 12,
+    marginBottom: 8,
+    fontSize: 13,
+    fontWeight: "600",
+    color: Theme.mutedForeground,
+  },
+});
