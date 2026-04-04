@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -12,38 +12,28 @@ import { useRouter, usePathname } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/lib/auth";
 import { Theme, NavColors } from "@/constants/colors";
+import { LinearGradient } from "expo-linear-gradient";
 
 interface NavItem {
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
   route: string;
+  adminOnly?: boolean;
+  tenantOnly?: string;
 }
 
-const mainNav: NavItem[] = [
+// Matches the web app sidebar exactly — same items, same order
+const navigation: NavItem[] = [
   { label: "Command Center", icon: "grid-outline", route: "/(dashboard)/overview" },
   { label: "Customers", icon: "person-circle-outline", route: "/(dashboard)/customers" },
   { label: "Calendar", icon: "calendar-outline", route: "/(dashboard)/calendar" },
-  { label: "Pipeline", icon: "funnel-outline", route: "/(dashboard)/leads" },
+  { label: "Pipeline", icon: "locate-outline", route: "/(dashboard)/leads" },
   { label: "Teams", icon: "people-outline", route: "/(dashboard)/teams" },
-  { label: "Schedule", icon: "time-outline", route: "/(dashboard)/schedule" },
+  { label: "Crew Assignment", icon: "time-outline", route: "/(dashboard)/crews", tenantOnly: "winbros" },
   { label: "Insights", icon: "bulb-outline", route: "/(dashboard)/insights" },
   { label: "Assistant", icon: "sparkles-outline", route: "/(dashboard)/assistant" },
-];
-
-const secondaryNav: NavItem[] = [
-  { label: "Inbox", icon: "mail-outline", route: "/(dashboard)/inbox" },
-  { label: "Campaigns", icon: "megaphone-outline", route: "/(dashboard)/campaigns" },
-  { label: "Earnings", icon: "cash-outline", route: "/(dashboard)/earnings" },
-  { label: "Quotes", icon: "document-text-outline", route: "/(dashboard)/quotes" },
-  { label: "Crews", icon: "construct-outline", route: "/(dashboard)/crews" },
-  { label: "Memberships", icon: "card-outline", route: "/(dashboard)/memberships" },
-  { label: "Calls", icon: "call-outline", route: "/(dashboard)/calls" },
-  { label: "Leaderboard", icon: "trophy-outline", route: "/(dashboard)/leaderboard" },
-  { label: "Rain Day", icon: "rainy-outline", route: "/(dashboard)/rain-day" },
-  { label: "Exceptions", icon: "bug-outline", route: "/(dashboard)/exceptions" },
-  { label: "Retargeting", icon: "refresh-outline", route: "/(dashboard)/retargeting" },
-  { label: "Settings", icon: "settings-outline", route: "/(dashboard)/settings" },
-  { label: "Admin", icon: "shield-outline", route: "/(dashboard)/admin" },
+  { label: "Debug", icon: "bug-outline", route: "/(dashboard)/exceptions", adminOnly: true },
+  { label: "Admin", icon: "shield-outline", route: "/(dashboard)/admin", adminOnly: true },
 ];
 
 interface Props {
@@ -55,6 +45,10 @@ export function Sidebar({ onClose }: Props) {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const { user, tenant, logout } = useAuth();
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+
+  const isAdmin = user?.username === "admin";
+  const tenantSlug = tenant?.business_name_short?.toLowerCase() || "";
 
   const navigate = (route: string) => {
     router.push(route as any);
@@ -63,13 +57,24 @@ export function Sidebar({ onClose }: Props) {
 
   const handleLogout = async () => {
     await logout();
-    router.replace("/login");
+    router.replace("/");
+  };
+
+  const handleSettings = () => {
+    router.push("/(dashboard)/settings" as any);
+    onClose?.();
   };
 
   const isActive = (route: string) => {
     const path = route.replace("/(dashboard)", "");
     return pathname.includes(path);
   };
+
+  const filteredNav = navigation.filter((item) => {
+    if (item.adminOnly && !isAdmin) return false;
+    if (item.tenantOnly && item.tenantOnly !== tenantSlug) return false;
+    return true;
+  });
 
   const renderNavItem = (item: NavItem) => {
     const active = isActive(item.route);
@@ -83,7 +88,12 @@ export function Sidebar({ onClose }: Props) {
         ]}
         activeOpacity={0.7}
       >
-        {active && <View style={styles.activeBorder} />}
+        {active && (
+          <LinearGradient
+            colors={["#7c3aed", "#4f46e5"]}
+            style={styles.activeBorder}
+          />
+        )}
         <Ionicons
           name={active ? (item.icon.replace("-outline", "") as any) : item.icon}
           size={18}
@@ -104,13 +114,18 @@ export function Sidebar({ onClose }: Props) {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* Logo */}
+      {/* Logo — matches web: icon + "CLEAN MACHINE" text */}
       <TouchableOpacity
         style={styles.logoSection}
         onPress={() => navigate("/(dashboard)/overview")}
+        activeOpacity={0.8}
       >
-        <View style={styles.logoIcon}>
-          <Text style={styles.logoLetter}>C</Text>
+        <View style={styles.logoIconWrapper}>
+          <View style={styles.logoIcon}>
+            <Text style={styles.logoLetter}>C</Text>
+          </View>
+          {/* Glow ring behind logo */}
+          <View style={styles.logoGlow} />
         </View>
         <Text style={styles.logoText}>CLEAN MACHINE</Text>
       </TouchableOpacity>
@@ -122,18 +137,18 @@ export function Sidebar({ onClose }: Props) {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.navSection}>
-          {mainNav.map(renderNavItem)}
-        </View>
-        <View style={styles.divider} />
-        <View style={styles.navSection}>
-          {secondaryNav.map(renderNavItem)}
+          {filteredNav.map(renderNavItem)}
         </View>
       </ScrollView>
 
-      {/* User section */}
-      <View style={[styles.userSection, { paddingBottom: insets.bottom + 12 }]}>
+      {/* User switcher — matches web: avatar + name + chevrons, expandable menu */}
+      <View style={[styles.userSection, { paddingBottom: insets.bottom + 8 }]}>
         <View style={styles.divider} />
-        <View style={styles.userInfo}>
+        <TouchableOpacity
+          style={styles.userSwitcher}
+          onPress={() => setUserMenuOpen(!userMenuOpen)}
+          activeOpacity={0.7}
+        >
           <View style={styles.userAvatar}>
             <Text style={styles.userAvatarText}>
               {(user?.display_name?.[0] || user?.username?.[0] || "U").toUpperCase()}
@@ -147,11 +162,27 @@ export function Sidebar({ onClose }: Props) {
               {tenant?.business_name_short || tenant?.business_name || ""}
             </Text>
           </View>
-        </View>
-        <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
-          <Ionicons name="log-out-outline" size={18} color={Theme.destructive} />
-          <Text style={styles.logoutText}>Sign Out</Text>
+          <Ionicons
+            name={userMenuOpen ? "chevron-up" : "chevron-expand-outline"}
+            size={16}
+            color={Theme.mutedForeground}
+          />
         </TouchableOpacity>
+
+        {/* Expandable menu — matches web's user switcher popover */}
+        {userMenuOpen && (
+          <View style={styles.userMenu}>
+            <TouchableOpacity onPress={handleSettings} style={styles.menuItem}>
+              <Ionicons name="settings-outline" size={16} color={Theme.mutedForeground} />
+              <Text style={styles.menuItemText}>Settings</Text>
+            </TouchableOpacity>
+            <View style={styles.menuDivider} />
+            <TouchableOpacity onPress={handleLogout} style={styles.menuItem}>
+              <Ionicons name="log-out-outline" size={16} color={Theme.destructive} />
+              <Text style={[styles.menuItemText, { color: Theme.destructive }]}>Log out</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
     </View>
   );
@@ -173,6 +204,9 @@ const styles = StyleSheet.create({
     borderBottomColor: "rgba(255,255,255,0.06)",
     gap: 10,
   },
+  logoIconWrapper: {
+    position: "relative",
+  },
   logoIcon: {
     width: 28,
     height: 28,
@@ -180,6 +214,17 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.primary,
     alignItems: "center",
     justifyContent: "center",
+    zIndex: 1,
+  },
+  logoGlow: {
+    position: "absolute",
+    top: -4,
+    left: -4,
+    right: -4,
+    bottom: -4,
+    borderRadius: 10,
+    backgroundColor: "rgba(139,92,246,0.15)",
+    zIndex: 0,
   },
   logoLetter: {
     color: "#fff",
@@ -225,11 +270,11 @@ const styles = StyleSheet.create({
   activeBorder: {
     position: "absolute",
     left: 0,
-    top: 8,
-    bottom: 8,
+    top: 4,
+    bottom: 4,
     width: 3,
-    borderRadius: 2,
-    backgroundColor: Theme.violet600,
+    borderTopRightRadius: 3,
+    borderBottomRightRadius: 3,
   },
   navLabel: {
     fontSize: 14,
@@ -244,14 +289,15 @@ const styles = StyleSheet.create({
   },
   userSection: {
     paddingHorizontal: 12,
-    paddingTop: 8,
+    paddingTop: 4,
   },
-  userInfo: {
+  userSwitcher: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
+    borderRadius: 8,
   },
   userAvatar: {
     width: 32,
@@ -278,18 +324,29 @@ const styles = StyleSheet.create({
     color: Theme.mutedForeground,
     fontSize: 11,
   },
-  logoutButton: {
+  userMenu: {
+    marginTop: 4,
+    marginHorizontal: 4,
+    borderRadius: 8,
+    backgroundColor: Theme.popover,
+    borderWidth: 1,
+    borderColor: Theme.glassCardBorder,
+    overflow: "hidden",
+  },
+  menuItem: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    borderRadius: 8,
-    marginTop: 4,
   },
-  logoutText: {
-    color: Theme.destructive,
+  menuItemText: {
+    color: Theme.foreground,
     fontSize: 13,
     fontWeight: "500",
+  },
+  menuDivider: {
+    height: 1,
+    backgroundColor: "rgba(255,255,255,0.06)",
   },
 });
