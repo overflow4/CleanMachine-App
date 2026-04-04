@@ -38,6 +38,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     SUPABASE_ANON_KEY:
       process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ??
       "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtjbWJ3c3RqbWRyamtoeGhra2p0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk1NzU0MDYsImV4cCI6MjA4NTE1MTQwNn0.W-8q1Frms6Octc2YETZjK2_9lgpUm4tlIt7brMZ5ZX8",
+    eas: {
+      projectId: "78a8b5e0-d787-4b2b-97b8-0f646597b6de",
+    },
   },
   experiments: {
     typedRoutes: true,
