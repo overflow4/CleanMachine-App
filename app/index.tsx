@@ -142,18 +142,18 @@ export default function AppEntryPage() {
     return (
       <View style={styles.container}>
         <View style={styles.loadingCenter}>
-          <Animated.Text
+          <Text
             style={[styles.monoText, styles.emeraldText, { fontSize: 14 }]}
           >
             LOADING...
-          </Animated.Text>
+          </Text>
         </View>
       </View>
     );
   }
 
   // Already authenticated — will redirect
-  if (isAuthenticated) return null;
+  if (isAuthenticated) return <View style={styles.container} />;
 
   // Crew success screen
   if (crewResult) {
@@ -162,7 +162,7 @@ export default function AppEntryPage() {
     return (
       <View style={styles.container}>
         <NeuralBackground color="#00ffaa" particleCount={200} speed={0.8} />
-        <View style={styles.centerContent}>
+        <View style={styles.centerContentOverlay}>
           <View style={[styles.cardWrapper, { maxWidth: 368 }]}>
             <View
               style={[
@@ -208,7 +208,7 @@ export default function AppEntryPage() {
     return (
       <View style={styles.container}>
         <NeuralBackground color="#00ffaa" particleCount={200} speed={0.8} />
-        <View style={styles.centerContent}>
+        <View style={styles.centerContentOverlay}>
           <View style={[styles.cardWrapper, { maxWidth: 368 }]}>
             <View
               style={[
@@ -251,11 +251,13 @@ export default function AppEntryPage() {
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.centerContent}
+        keyboardVerticalOffset={0}
       >
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          bounces={true}
         >
           <View style={[styles.cardWrapper, { maxWidth: 368 }]}>
             {/* Logo / Header */}
@@ -394,6 +396,7 @@ export default function AppEntryPage() {
                       setError("");
                     }}
                     style={styles.backButton}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                   >
                     <Svg
                       width={16}
@@ -486,6 +489,7 @@ export default function AppEntryPage() {
                       setError("");
                     }}
                     style={styles.backButton}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                   >
                     <Svg
                       width={16}
@@ -523,6 +527,7 @@ export default function AppEntryPage() {
                         autoCapitalize="none"
                         autoCorrect={false}
                         autoComplete="username"
+                        textContentType="username"
                         autoFocus
                         editable={!loading}
                         style={[styles.monoText, styles.input]}
@@ -540,7 +545,8 @@ export default function AppEntryPage() {
                         placeholder="--------"
                         placeholderTextColor="#525252"
                         secureTextEntry
-                        autoComplete="current-password"
+                        autoComplete="password"
+                        textContentType="password"
                         editable={!loading}
                         style={[styles.monoText, styles.input]}
                       />
@@ -611,9 +617,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   centerContent: {
+    flex: 1,
+    zIndex: 10,
+  },
+  centerContentOverlay: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 10,
     justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 16,
   },
   scrollContent: {
     flexGrow: 1,
