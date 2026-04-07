@@ -77,15 +77,16 @@ export default function AssistantScreen() {
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
       style={styles.container}
-      keyboardVerticalOffset={90}
+      keyboardVerticalOffset={112}
     >
       <FlatList
         ref={flatListRef}
         data={messages}
         keyExtractor={(item) => item.id}
         style={styles.messageList}
+        contentContainerStyle={{ paddingTop: 16, paddingBottom: 8 }}
         onContentSizeChange={() =>
           flatListRef.current?.scrollToEnd({ animated: true })
         }

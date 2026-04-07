@@ -2,10 +2,12 @@ import React, { useState } from "react";
 import {
   View,
   Text,
+  TextInput,
   TouchableOpacity,
   ScrollView,
   StyleSheet,
   Platform,
+  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, usePathname } from "expo-router";
@@ -169,21 +171,149 @@ export function Sidebar({ onClose }: Props) {
           />
         </TouchableOpacity>
 
-        {/* Expandable menu — matches web's user switcher popover */}
+        {/* Expandable user menu */}
         {userMenuOpen && (
-          <View style={styles.userMenu}>
-            <TouchableOpacity onPress={handleSettings} style={styles.menuItem}>
-              <Ionicons name="settings-outline" size={16} color={Theme.mutedForeground} />
-              <Text style={styles.menuItemText}>Settings</Text>
-            </TouchableOpacity>
-            <View style={styles.menuDivider} />
-            <TouchableOpacity onPress={handleLogout} style={styles.menuItem}>
-              <Ionicons name="log-out-outline" size={16} color={Theme.destructive} />
-              <Text style={[styles.menuItemText, { color: Theme.destructive }]}>Log out</Text>
-            </TouchableOpacity>
-          </View>
+          <UserMenu
+            onSettings={handleSettings}
+            onLogout={handleLogout}
+            onClose={() => setUserMenuOpen(false)}
+          />
         )}
       </View>
+    </View>
+  );
+}
+
+function UserMenu({ onSettings, onLogout, onClose }: { onSettings: () => void; onLogout: () => void; onClose: () => void }) {
+  const { user, accounts, switchAccount, addAccount } = useAuth();
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [addUsername, setAddUsername] = useState("");
+  const [addPassword, setAddPassword] = useState("");
+  const [addLoading, setAddLoading] = useState(false);
+
+  const otherAccounts = accounts.filter((a) => a.user.id !== user?.id);
+
+  const handleSwitch = async (account: typeof accounts[0]) => {
+    try {
+      await switchAccount(account);
+      onClose();
+    } catch (err: any) {
+      Alert.alert("Switch Failed", err.message);
+    }
+  };
+
+  const handleAdd = async () => {
+    if (!addUsername.trim() || !addPassword.trim()) return;
+    setAddLoading(true);
+    try {
+      await addAccount(addUsername.trim(), addPassword.trim());
+      setShowAddForm(false);
+      setAddUsername("");
+      setAddPassword("");
+      onClose();
+    } catch (err: any) {
+      Alert.alert("Login Failed", err.message);
+    } finally {
+      setAddLoading(false);
+    }
+  };
+
+  return (
+    <View style={styles.userMenu}>
+      {/* Current account indicator */}
+      <View style={styles.menuSection}>
+        <Text style={styles.menuSectionLabel}>Current Account</Text>
+        <View style={[styles.menuItem, { backgroundColor: "rgba(255,255,255,0.04)" }]}>
+          <Ionicons name="checkmark-circle" size={16} color={Theme.success} />
+          <Text style={styles.menuItemText}>
+            {user?.display_name || user?.username || "User"}
+          </Text>
+        </View>
+      </View>
+
+      {/* Other accounts */}
+      {otherAccounts.length > 0 && (
+        <View style={styles.menuSection}>
+          <Text style={styles.menuSectionLabel}>Switch Account</Text>
+          {otherAccounts.map((account) => (
+            <TouchableOpacity
+              key={account.user.id}
+              style={styles.menuItem}
+              onPress={() => handleSwitch(account)}
+            >
+              <View style={[styles.miniAvatar, { backgroundColor: Theme.primaryMuted }]}>
+                <Text style={{ color: Theme.primaryLight, fontSize: 10, fontWeight: "600" }}>
+                  {(account.user.display_name?.[0] || account.user.username[0]).toUpperCase()}
+                </Text>
+              </View>
+              <Text style={styles.menuItemText}>
+                {account.user.display_name || account.user.username}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
+      <View style={styles.menuDivider} />
+
+      {/* Add account */}
+      {showAddForm ? (
+        <View style={styles.addAccountForm}>
+          <TextInput
+            value={addUsername}
+            onChangeText={setAddUsername}
+            placeholder="Username"
+            placeholderTextColor={Theme.mutedForeground}
+            autoCapitalize="none"
+            style={styles.addInput}
+          />
+          <TextInput
+            value={addPassword}
+            onChangeText={setAddPassword}
+            placeholder="Password"
+            placeholderTextColor={Theme.mutedForeground}
+            secureTextEntry
+            style={styles.addInput}
+          />
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <TouchableOpacity
+              onPress={() => setShowAddForm(false)}
+              style={[styles.addBtn, { flex: 1, backgroundColor: Theme.muted }]}
+            >
+              <Text style={{ color: Theme.mutedForeground, fontSize: 12, fontWeight: "500" }}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={handleAdd}
+              disabled={addLoading}
+              style={[styles.addBtn, { flex: 1, backgroundColor: Theme.primary, opacity: addLoading ? 0.5 : 1 }]}
+            >
+              <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>
+                {addLoading ? "Adding..." : "Add"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : (
+        <TouchableOpacity
+          style={styles.menuItem}
+          onPress={() => setShowAddForm(true)}
+        >
+          <Ionicons name="add-circle-outline" size={16} color={Theme.mutedForeground} />
+          <Text style={styles.menuItemText}>Add another account</Text>
+        </TouchableOpacity>
+      )}
+
+      <View style={styles.menuDivider} />
+
+      <TouchableOpacity onPress={onSettings} style={styles.menuItem}>
+        <Ionicons name="settings-outline" size={16} color={Theme.mutedForeground} />
+        <Text style={styles.menuItemText}>Settings</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity onPress={onLogout} style={styles.menuItem}>
+        <Ionicons name="log-out-outline" size={16} color={Theme.destructive} />
+        <Text style={[styles.menuItemText, { color: Theme.destructive }]}>Log out</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -348,5 +478,44 @@ const styles = StyleSheet.create({
   menuDivider: {
     height: 1,
     backgroundColor: "rgba(255,255,255,0.06)",
+  },
+  menuSection: {
+    paddingVertical: 4,
+  },
+  menuSectionLabel: {
+    fontSize: 11,
+    fontWeight: "500",
+    color: Theme.mutedForeground,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  miniAvatar: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  addAccountForm: {
+    padding: 12,
+    gap: 8,
+  },
+  addInput: {
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: Theme.border,
+    backgroundColor: Theme.muted,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 13,
+    color: Theme.foreground,
+  },
+  addBtn: {
+    borderRadius: 6,
+    paddingVertical: 8,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

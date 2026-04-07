@@ -2,6 +2,9 @@ import * as SecureStore from "expo-secure-store";
 import { API_URL } from "@/constants/config";
 
 const SESSION_KEY = "winbros_session";
+const ACCOUNTS_KEY = "winbros_accounts";
+
+// ===== TOKEN STORAGE =====
 
 export async function getSessionToken(): Promise<string | null> {
   try {
@@ -19,12 +22,43 @@ export async function clearSessionToken(): Promise<void> {
   await SecureStore.deleteItemAsync(SESSION_KEY);
 }
 
+// ===== ACCOUNTS STORAGE (multi-tenant) =====
+
+export interface StoredAccount {
+  user: {
+    id: number;
+    username: string;
+    display_name: string | null;
+    tenantSlug: string | null;
+  };
+  sessionToken: string;
+}
+
+export async function getStoredAccounts(): Promise<StoredAccount[]> {
+  try {
+    const raw = await SecureStore.getItemAsync(ACCOUNTS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function setStoredAccounts(accounts: StoredAccount[]): Promise<void> {
+  await SecureStore.setItemAsync(ACCOUNTS_KEY, JSON.stringify(accounts));
+}
+
+// ===== HTTP CLIENT =====
+
 async function buildHeaders(): Promise<Record<string, string>> {
   const token = await getSessionToken();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
   if (token) {
+    // Send token both as Cookie and Authorization header.
+    // The server reads cookies, but React Native cross-origin fetch
+    // may not reliably deliver Cookie headers. The Cookie header
+    // format is what Next.js middleware parses.
     headers["Cookie"] = `winbros_session=${token}`;
   }
   return headers;
@@ -43,7 +77,6 @@ export async function apiFetch<T = unknown>(
       ...headers,
       ...(options.headers as Record<string, string>),
     },
-    credentials: "include",
   });
 
   if (!res.ok) {
@@ -62,6 +95,7 @@ export async function apiFetch<T = unknown>(
 }
 
 // ===== AUTH =====
+
 export async function login(username: string, password: string) {
   const res = await fetch(`${API_URL}/api/auth/login`, {
     method: "POST",
@@ -72,16 +106,55 @@ export async function login(username: string, password: string) {
   if (!res.ok || !data.success) {
     throw new Error(data.error || "Login failed");
   }
+  // Store the session token
   if (data.data?.sessionToken) {
     await setSessionToken(data.data.sessionToken);
+  }
+  // Store in accounts list for multi-account switching
+  if (data.data?.user && data.data?.sessionToken) {
+    const accounts = await getStoredAccounts();
+    const newAccount: StoredAccount = {
+      user: {
+        id: data.data.user.id,
+        username: data.data.user.username,
+        display_name: data.data.user.display_name,
+        tenantSlug: data.data.user.tenantSlug || null,
+      },
+      sessionToken: data.data.sessionToken,
+    };
+    // Deduplicate by user id
+    const filtered = accounts.filter((a) => a.user.id !== newAccount.user.id);
+    filtered.push(newAccount);
+    await setStoredAccounts(filtered);
   }
   return data;
 }
 
 export async function getSession() {
-  return apiFetch<{ user: import("@/types").AuthUser; tenant: import("@/types").Tenant }>(
-    "/api/auth/session"
-  );
+  const result = await apiFetch<any>("/api/auth/session");
+  // The API returns { success, data: { user, type, sessionToken, tenantStatus } }
+  // We need to normalize this for the auth context
+  const d = result.data || result;
+  return {
+    user: d.user || null,
+    tenantStatus: d.tenantStatus || null,
+    type: d.type || "owner",
+  };
+}
+
+export async function switchAccount(sessionToken: string) {
+  const res = await fetch(`${API_URL}/api/auth/switch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionToken }),
+  });
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || "Switch failed");
+  }
+  // The switch endpoint returns the user for the new session
+  await setSessionToken(sessionToken);
+  return data;
 }
 
 export async function logout() {
@@ -108,17 +181,11 @@ export async function fetchCustomer(id: string) {
 }
 
 export async function createCustomer(data: Partial<import("@/types").Customer>) {
-  return apiFetch("/api/customers", {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
+  return apiFetch("/api/customers", { method: "POST", body: JSON.stringify(data) });
 }
 
 export async function updateCustomer(id: string, data: Partial<import("@/types").Customer>) {
-  return apiFetch(`/api/customers/${id}`, {
-    method: "PUT",
-    body: JSON.stringify(data),
-  });
+  return apiFetch(`/api/customers/${id}`, { method: "PUT", body: JSON.stringify(data) });
 }
 
 // ===== LEADS =====
@@ -134,17 +201,11 @@ export async function fetchJobs(params?: Record<string, string>) {
 }
 
 export async function createJob(data: Partial<import("@/types").Job>) {
-  return apiFetch("/api/jobs", {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
+  return apiFetch("/api/jobs", { method: "POST", body: JSON.stringify(data) });
 }
 
 export async function updateJob(id: string, data: Partial<import("@/types").Job>) {
-  return apiFetch(`/api/jobs/${id}`, {
-    method: "PUT",
-    body: JSON.stringify(data),
-  });
+  return apiFetch(`/api/jobs/${id}`, { method: "PUT", body: JSON.stringify(data) });
 }
 
 export async function deleteJob(id: string) {
@@ -152,31 +213,19 @@ export async function deleteJob(id: string) {
 }
 
 // ===== TEAMS =====
-export async function fetchTeams() {
-  return apiFetch("/api/teams");
-}
-
+export async function fetchTeams() { return apiFetch("/api/teams"); }
 export async function fetchTeamEarnings(teamId?: string) {
-  const params = teamId ? `?team_id=${teamId}` : "";
-  return apiFetch(`/api/teams/earnings${params}`);
+  return apiFetch(`/api/teams/earnings${teamId ? `?team_id=${teamId}` : ""}`);
 }
-
 export async function fetchTeamMessages(teamId?: string) {
-  const params = teamId ? `?team_id=${teamId}` : "";
-  return apiFetch(`/api/teams/messages${params}`);
+  return apiFetch(`/api/teams/messages${teamId ? `?team_id=${teamId}` : ""}`);
 }
-
 export async function manageTeam(action: string, data: Record<string, unknown>) {
-  return apiFetch("/api/manage-teams", {
-    method: "POST",
-    body: JSON.stringify({ action, ...data }),
-  });
+  return apiFetch("/api/manage-teams", { method: "POST", body: JSON.stringify({ action, ...data }) });
 }
 
 // ===== ACTIONS =====
-export async function fetchPipeline() {
-  return apiFetch<import("@/types").Pipeline>("/api/actions/pipeline");
-}
+export async function fetchPipeline() { return apiFetch<import("@/types").Pipeline>("/api/actions/pipeline"); }
 
 export async function fetchMyJobs(date: string, range: string = "day", cleanerId?: number) {
   let params = `?date=${date}&range=${range}`;
@@ -189,10 +238,7 @@ export async function fetchCrews(date: string, week: boolean = false) {
 }
 
 export async function saveCrews(data: { date: string; assignments: import("@/types").CrewAssignment[] }) {
-  return apiFetch("/api/actions/crews", {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
+  return apiFetch("/api/actions/crews", { method: "POST", body: JSON.stringify(data) });
 }
 
 export async function fetchInboxConversations() {
@@ -206,38 +252,23 @@ export async function fetchInboxThread(customerId: number) {
 }
 
 export async function inboxAction(action: "take_over" | "release" | "resolve", customerId: number) {
-  return apiFetch("/api/actions/inbox", {
-    method: "POST",
-    body: JSON.stringify({ action, customerId }),
-  });
+  return apiFetch("/api/actions/inbox", { method: "POST", body: JSON.stringify({ action, customerId }) });
 }
 
 export async function completeJob(jobId: string) {
-  return apiFetch("/api/actions/complete-job", {
-    method: "POST",
-    body: JSON.stringify({ jobId }),
-  });
+  return apiFetch("/api/actions/complete-job", { method: "POST", body: JSON.stringify({ jobId }) });
 }
 
 export async function assignCleaner(jobId: string, cleanerId?: number, mode?: "ranked" | "broadcast") {
-  return apiFetch("/api/actions/assign-cleaner", {
-    method: "POST",
-    body: JSON.stringify({ jobId, cleanerId, mode }),
-  });
+  return apiFetch("/api/actions/assign-cleaner", { method: "POST", body: JSON.stringify({ jobId, cleanerId, mode }) });
 }
 
 export async function sendSms(to: string, message: string) {
-  return apiFetch("/api/actions/send-sms", {
-    method: "POST",
-    body: JSON.stringify({ to, message }),
-  });
+  return apiFetch("/api/actions/send-sms", { method: "POST", body: JSON.stringify({ to, message }) });
 }
 
 export async function chargeCard(customerId: string, amount: number, description?: string, jobId?: string) {
-  return apiFetch("/api/actions/charge-card", {
-    method: "POST",
-    body: JSON.stringify({ customer_id: customerId, amount, description, job_id: jobId }),
-  });
+  return apiFetch("/api/actions/charge-card", { method: "POST", body: JSON.stringify({ customer_id: customerId, amount, description, job_id: jobId }) });
 }
 
 export async function fetchAttentionNeeded() {
@@ -250,30 +281,19 @@ export async function fetchQuotes(params?: Record<string, string>) {
 }
 
 export async function createQuote(data: Partial<import("@/types").Quote>) {
-  return apiFetch("/api/actions/quotes", {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
+  return apiFetch("/api/actions/quotes", { method: "POST", body: JSON.stringify(data) });
 }
 
 export async function sendQuote(quoteId: string) {
-  return apiFetch("/api/actions/quotes/send", {
-    method: "POST",
-    body: JSON.stringify({ quote_id: quoteId }),
-  });
+  return apiFetch("/api/actions/quotes/send", { method: "POST", body: JSON.stringify({ quote_id: quoteId }) });
 }
 
 export async function fetchSettings() {
-  return apiFetch<{ success: boolean; settings: import("@/types").TenantSettings }>(
-    "/api/actions/settings"
-  );
+  return apiFetch<{ success: boolean; settings: import("@/types").TenantSettings }>("/api/actions/settings");
 }
 
 export async function updateSettings(settings: Record<string, unknown>) {
-  return apiFetch("/api/actions/settings", {
-    method: "POST",
-    body: JSON.stringify(settings),
-  });
+  return apiFetch("/api/actions/settings", { method: "POST", body: JSON.stringify(settings) });
 }
 
 export async function fetchTimeOff(month: string, cleanerId?: number) {
@@ -283,17 +303,11 @@ export async function fetchTimeOff(month: string, cleanerId?: number) {
 }
 
 export async function requestTimeOff(cleanerId: number, dates: string[], reason?: string) {
-  return apiFetch("/api/actions/time-off", {
-    method: "POST",
-    body: JSON.stringify({ cleaner_id: cleanerId, dates, reason }),
-  });
+  return apiFetch("/api/actions/time-off", { method: "POST", body: JSON.stringify({ cleaner_id: cleanerId, dates, reason }) });
 }
 
 export async function deleteTimeOff(cleanerId: number, dates: string[]) {
-  return apiFetch("/api/actions/time-off", {
-    method: "DELETE",
-    body: JSON.stringify({ cleaner_id: cleanerId, dates }),
-  });
+  return apiFetch("/api/actions/time-off", { method: "DELETE", body: JSON.stringify({ cleaner_id: cleanerId, dates }) });
 }
 
 export async function fetchMemberships(params?: Record<string, string>) {
@@ -302,13 +316,10 @@ export async function fetchMemberships(params?: Record<string, string>) {
 }
 
 export async function fetchEarnings(range?: string) {
-  const params = range ? `?range=${range}` : "";
-  return apiFetch(`/api/earnings${params}`);
+  return apiFetch(`/api/earnings${range ? `?range=${range}` : ""}`);
 }
 
-export async function fetchInsightsData() {
-  return apiFetch("/api/actions/insights-data");
-}
+export async function fetchInsightsData() { return apiFetch("/api/actions/insights-data"); }
 
 export async function fetchCustomerLogs(customerId?: string, phone?: string) {
   const params = new URLSearchParams();
@@ -317,97 +328,48 @@ export async function fetchCustomerLogs(customerId?: string, phone?: string) {
   return apiFetch(`/api/actions/customer-logs?${params.toString()}`);
 }
 
-export async function generatePaymentLink(data: {
-  customerId: string;
-  type: string;
-  amount?: number;
-  description?: string;
-  jobId?: string;
-  sendSms?: boolean;
-}) {
-  return apiFetch("/api/actions/generate-payment-link", {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
+export async function generatePaymentLink(data: { customerId: string; type: string; amount?: number; description?: string; jobId?: string; sendSms?: boolean }) {
+  return apiFetch("/api/actions/generate-payment-link", { method: "POST", body: JSON.stringify(data) });
 }
 
 export async function autoSchedule(jobId: string) {
-  return apiFetch("/api/actions/auto-schedule", {
-    method: "POST",
-    body: JSON.stringify({ jobId }),
-  });
+  return apiFetch("/api/actions/auto-schedule", { method: "POST", body: JSON.stringify({ jobId }) });
 }
 
 export async function notifyCleaners(jobId: string, cleanerIds: number[]) {
-  return apiFetch("/api/actions/notify-cleaners", {
-    method: "POST",
-    body: JSON.stringify({ jobId, cleanerIds }),
-  });
+  return apiFetch("/api/actions/notify-cleaners", { method: "POST", body: JSON.stringify({ jobId, cleanerIds }) });
 }
 
 export async function recurringAction(action: string, data: Record<string, unknown>) {
-  return apiFetch("/api/actions/recurring", {
-    method: "POST",
-    body: JSON.stringify({ action, ...data }),
-  });
+  return apiFetch("/api/actions/recurring", { method: "POST", body: JSON.stringify({ action, ...data }) });
 }
 
 export async function sendEmployeeCredentials(cleanerId: number) {
-  return apiFetch("/api/actions/send-employee-credentials", {
-    method: "POST",
-    body: JSON.stringify({ cleaner_id: cleanerId }),
-  });
+  return apiFetch("/api/actions/send-employee-credentials", { method: "POST", body: JSON.stringify({ cleaner_id: cleanerId }) });
 }
 
-export async function fetchGhostHealth() {
-  return apiFetch("/api/actions/ghost-health");
-}
-
-export async function fetchRetargetingCustomers() {
-  return apiFetch("/api/actions/retargeting-customers");
-}
-
-export async function fetchRetargetingPipeline() {
-  return apiFetch("/api/actions/retargeting-pipeline");
-}
-
-export async function fetchRetargetingAbResults() {
-  return apiFetch("/api/actions/retargeting-ab-results");
-}
+export async function fetchGhostHealth() { return apiFetch("/api/actions/ghost-health"); }
+export async function fetchRetargetingCustomers() { return apiFetch("/api/actions/retargeting-customers"); }
+export async function fetchRetargetingPipeline() { return apiFetch("/api/actions/retargeting-pipeline"); }
+export async function fetchRetargetingAbResults() { return apiFetch("/api/actions/retargeting-ab-results"); }
 
 export async function brainQuery(query: string) {
-  return apiFetch("/api/actions/brain-query", {
-    method: "POST",
-    body: JSON.stringify({ query }),
-  });
+  return apiFetch("/api/actions/brain-query", { method: "POST", body: JSON.stringify({ query }) });
 }
 
 export async function fetchJobInvoiceDetails(customerId: string) {
   return apiFetch(`/api/actions/job-invoice-details?customerId=${customerId}`);
 }
 
-export async function fetchLeadJourney() {
-  return apiFetch("/api/actions/lead-journey");
-}
-
-export async function fetchExceptions() {
-  return apiFetch("/api/actions/attention-needed");
-}
+export async function fetchLeadJourney() { return apiFetch("/api/actions/lead-journey"); }
+export async function fetchExceptions() { return apiFetch("/api/actions/attention-needed"); }
 
 export async function completeCallTask(taskId: string) {
-  return apiFetch("/api/actions/complete-call-task", {
-    method: "POST",
-    body: JSON.stringify({ taskId }),
-  });
+  return apiFetch("/api/actions/complete-call-task", { method: "POST", body: JSON.stringify({ taskId }) });
 }
 
 export async function sendInvoice(data: Record<string, unknown>) {
-  return apiFetch("/api/actions/send-invoice", {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
+  return apiFetch("/api/actions/send-invoice", { method: "POST", body: JSON.stringify(data) });
 }
 
-export async function fetchCalls() {
-  return apiFetch("/api/calls");
-}
+export async function fetchCalls() { return apiFetch("/api/calls"); }
