@@ -14,12 +14,17 @@ export default function CustomersScreen() {
   const [search, setSearch] = useState("");
   const router = useRouter();
 
-  const { data, isLoading, refetch, isRefetching } = useQuery({
+  const { data, isLoading, isError, error, refetch, isRefetching } = useQuery({
     queryKey: ["customers", search],
     queryFn: () => fetchCustomers(search || undefined),
   });
 
-  const customers: Customer[] = (data as any)?.data?.customers ?? (data as any)?.data ?? (data as any)?.customers ?? [];
+  // Debug: log what we actually got back
+  const raw = data as any;
+  const customers: Customer[] = raw?.data?.customers ?? raw?.data ?? raw?.customers ?? [];
+  if (__DEV__ && data) {
+    console.log("[Customers] data keys:", Object.keys(raw || {}), "count:", customers.length);
+  }
 
   const renderCustomer = useCallback(
     ({ item }: { item: Customer }) => {
@@ -56,6 +61,20 @@ export default function CustomersScreen() {
   );
 
   if (isLoading && !customers.length) return <LoadingScreen message="Loading customers..." />;
+  if (isError) {
+    return (
+      <View style={s.container}>
+        <View style={{ padding: 24, alignItems: "center" }}>
+          <Ionicons name="alert-circle-outline" size={40} color={Theme.destructive} />
+          <Text style={{ color: Theme.foreground, fontSize: 16, fontWeight: "600", marginTop: 12 }}>Failed to load customers</Text>
+          <Text style={{ color: Theme.mutedForeground, fontSize: 13, marginTop: 4, textAlign: "center" }}>{(error as Error)?.message || "Unknown error"}</Text>
+          <TouchableOpacity onPress={() => refetch()} style={{ marginTop: 16, backgroundColor: Theme.primary, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 }}>
+            <Text style={{ color: "#fff", fontWeight: "600" }}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={s.container}>

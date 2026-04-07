@@ -74,24 +74,34 @@ export async function apiFetch<T = unknown>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const headers = await buildHeaders();
+  const token = await getSessionToken();
   const url = `${API_URL}${path}`;
+
+  const headers: Record<string, string> = {
+    ...(options.headers as Record<string, string>),
+  };
+
+  // Only set Content-Type for requests with a body
+  if (options.body || options.method === "POST" || options.method === "PUT" || options.method === "PATCH" || options.method === "DELETE") {
+    headers["Content-Type"] = "application/json";
+  }
+
+  if (token) {
+    headers["Cookie"] = `winbros_session=${token}`;
+  }
+
+  console.log(`[API] ${options.method || "GET"} ${path} (token: ${token ? "yes" : "no"})`);
 
   const res = await fetch(url, {
     ...options,
-    headers: {
-      ...headers,
-      ...(options.headers as Record<string, string>),
-    },
-    // credentials:"include" tells the native HTTP layer to send
-    // cookies from its jar. The login response sets Set-Cookie
-    // which iOS stores, and then sends automatically on subsequent
-    // requests to the same domain.
-    credentials: "include",
+    headers,
   });
+
+  console.log(`[API] ${path} → ${res.status}`);
 
   if (!res.ok) {
     const errorBody = await res.text();
+    console.log(`[API] ${path} ERROR: ${errorBody.slice(0, 200)}`);
     let message = `API error ${res.status}`;
     try {
       const parsed = JSON.parse(errorBody);
@@ -108,15 +118,11 @@ export async function apiFetch<T = unknown>(
 // ===== AUTH =====
 
 export async function login(username: string, password: string) {
+  console.log("[API] POST /api/auth/login");
   const res = await fetch(`${API_URL}/api/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password }),
-    // credentials:"include" ensures the Set-Cookie header from the
-    // server response is stored in the native cookie jar. iOS will
-    // then automatically send this cookie on future requests to the
-    // same domain, which is how the session auth works.
-    credentials: "include",
   });
   const data = await res.json();
   if (!res.ok || !data.success) {
