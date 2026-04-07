@@ -52,10 +52,12 @@ export default function OverviewScreen() {
     setRefreshing(false);
   }, []);
 
-  const metrics: any = metricsQuery.data ?? {};
-  const jobs: Job[] = (todaysJobsQuery.data as any)?.data ?? (todaysJobsQuery.data as any)?.jobs ?? [];
+  const metricsRaw: any = metricsQuery.data ?? {};
+  const metrics: any = metricsRaw.data ?? metricsRaw;
+  const jobs: Job[] = (todaysJobsQuery.data as any)?.data ?? [];
   const attentionItems: AttentionItem[] = (attentionQuery.data as any)?.items ?? [];
-  const leads: Lead[] = (leadsQuery.data as any)?.data ?? [];
+  const leadsRaw: any = leadsQuery.data ?? {};
+  const leads: Lead[] = leadsRaw.data?.leads ?? leadsRaw.data ?? leadsRaw.leads ?? [];
 
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long", month: "long", day: "numeric", year: "numeric",
@@ -75,9 +77,9 @@ export default function OverviewScreen() {
 
       {/* Stats Cards */}
       <View style={styles.statsRow}>
-        <StatCard title="Today's Revenue" value={`$${metrics.revenue ?? metrics.today_revenue ?? 0}`} icon="cash-outline" />
-        <StatCard title="Jobs Completed" value={String(metrics.jobs ?? metrics.today_jobs ?? 0)} icon="checkmark-circle-outline" />
-        <StatCard title="New Leads" value={String(metrics.leads ?? metrics.new_leads ?? 0)} icon="trending-up-outline" />
+        <StatCard title="Today's Revenue" value={`$${metrics.total_revenue ?? metrics.revenue ?? 0}`} icon="cash-outline" />
+        <StatCard title="Jobs Completed" value={String(metrics.jobs_completed ?? metrics.jobs ?? 0)} icon="checkmark-circle-outline" />
+        <StatCard title="New Leads" value={String(metrics.leads_in ?? metrics.leads ?? 0)} icon="trending-up-outline" />
       </View>
 
       {/* Attention Needed */}
@@ -158,7 +160,7 @@ export default function OverviewScreen() {
 function StatCard({ title, value, icon }: { title: string; value: string; icon: keyof typeof Ionicons.glyphMap }) {
   return (
     <GlassCard style={{ flex: 1, padding: 16 }}>
-      <View style={[styles.statIconBox, { backgroundColor: "rgba(124,108,250,0.1)" }]}>
+      <View style={[styles.statIconBox, { backgroundColor: "rgba(0,145,255,0.1)" }]}>
         <Ionicons name={icon} size={20} color={Theme.primary} />
       </View>
       <Text style={styles.statValue}>{value}</Text>
@@ -179,12 +181,12 @@ function StatusBadge({ status }: { status: string }) {
 const typeIcon = (t: string): keyof typeof Ionicons.glyphMap => ({ message: "chatbubble-outline", payment: "card-outline", cleaner: "person-outline", unassigned: "person-add-outline", quote: "document-text-outline" } as any)[t] || "alert-circle-outline";
 const typeColor = (t: string) => ({ message: "rgba(96,165,250,0.15)", payment: "rgba(239,68,68,0.15)", cleaner: "rgba(249,115,22,0.15)", unassigned: "rgba(245,158,11,0.15)", quote: "rgba(139,92,246,0.15)" } as any)[t] || "rgba(139,92,246,0.15)";
 const typeIconColor = (t: string) => ({ message: "#60a5fa", payment: "#f87171", cleaner: "#fb923c", unassigned: "#fbbf24", quote: "#a78bfa" } as any)[t] || "#a78bfa";
-const statusBg = (s?: string) => ({ completed: "rgba(16,185,129,0.1)", in_progress: "rgba(124,108,250,0.1)", "in-progress": "rgba(124,108,250,0.1)", confirmed: "rgba(96,165,250,0.1)", scheduled: "rgba(113,113,122,0.1)", quoted: "rgba(245,158,11,0.1)", cancelled: "rgba(239,68,68,0.1)", new: "rgba(124,108,250,0.1)", contacted: "rgba(245,158,11,0.1)", booked: "rgba(16,185,129,0.1)", lost: "rgba(239,68,68,0.1)" } as any)[s || "scheduled"] || "rgba(113,113,122,0.1)";
-const statusColor = (s?: string) => ({ completed: "#34d399", in_progress: "#7c6cfa", "in-progress": "#7c6cfa", confirmed: "#60a5fa", scheduled: "#71717a", quoted: "#fbbf24", cancelled: "#f87171", new: "#7c6cfa", contacted: "#fbbf24", booked: "#34d399", lost: "#f87171" } as any)[s || "scheduled"] || "#71717a";
-const statusBarColor = (s?: string) => ({ completed: "#34d399", in_progress: "#7c6cfa", "in-progress": "#7c6cfa" } as any)[s || ""] || "#71717a";
+const statusBg = (s?: string) => ({ completed: "rgba(16,185,129,0.1)", in_progress: "rgba(0,145,255,0.1)", "in-progress": "rgba(0,145,255,0.1)", confirmed: "rgba(96,165,250,0.1)", scheduled: "rgba(113,113,122,0.1)", quoted: "rgba(245,158,11,0.1)", cancelled: "rgba(239,68,68,0.1)", new: "rgba(0,145,255,0.1)", contacted: "rgba(245,158,11,0.1)", booked: "rgba(16,185,129,0.1)", lost: "rgba(239,68,68,0.1)" } as any)[s || "scheduled"] || "rgba(113,113,122,0.1)";
+const statusColor = (s?: string) => ({ completed: "#34d399", in_progress: "#0091ff", "in-progress": "#0091ff", confirmed: "#60a5fa", scheduled: "#71717a", quoted: "#fbbf24", cancelled: "#f87171", new: "#0091ff", contacted: "#fbbf24", booked: "#34d399", lost: "#f87171" } as any)[s || "scheduled"] || "#71717a";
+const statusBarColor = (s?: string) => ({ completed: "#34d399", in_progress: "#0091ff", "in-progress": "#0091ff" } as any)[s || ""] || "#71717a";
 const sourceIcon = (s: string): keyof typeof Ionicons.glyphMap => ({ phone: "call-outline", sms: "chatbubble-outline", meta: "logo-facebook", website: "globe-outline", google: "logo-google", thumbtack: "pin-outline", email: "mail-outline", vapi: "call-outline" } as any)[s] || "person-outline";
-const sourceBg = (s: string) => ({ phone: "rgba(124,108,250,0.15)", meta: "rgba(236,72,153,0.15)", website: "rgba(34,197,94,0.15)", google: "rgba(34,211,153,0.15)", thumbtack: "rgba(34,211,238,0.15)" } as any)[s] || "rgba(124,108,250,0.15)";
-const sourceColor = (s: string) => ({ phone: "#7c6cfa", meta: "#ec4899", website: "#22c55e", google: "#34d399", thumbtack: "#22d3ee" } as any)[s] || "#7c6cfa";
+const sourceBg = (s: string) => ({ phone: "rgba(0,145,255,0.15)", meta: "rgba(236,72,153,0.15)", website: "rgba(34,197,94,0.15)", google: "rgba(34,211,153,0.15)", thumbtack: "rgba(34,211,238,0.15)" } as any)[s] || "rgba(0,145,255,0.15)";
+const sourceColor = (s: string) => ({ phone: "#0091ff", meta: "#ec4899", website: "#22c55e", google: "#34d399", thumbtack: "#22d3ee" } as any)[s] || "#0091ff";
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Theme.background },

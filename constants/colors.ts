@@ -1,55 +1,63 @@
-// Dark glassmorphism theme matching web app exactly
-// All colors derived from oklch values in the web app's globals.css
+// Dark theme — exact oklch-to-hex conversions from web app globals.css
 
 export const Theme = {
-  // Page backgrounds
-  background: "#141318", // oklch(0.098 0.005 270)
-  sidebar: "#1a1820", // oklch(0.11 0.005 270)
-  card: "#1e1c24", // oklch(0.13 0.005 270)
-  cardHover: "#24222c", // slightly lighter card
-  popover: "#232130", // oklch(0.15 0.005 270)
-  muted: "#272530", // oklch(0.18 0.005 270)
-  input: "#272530", // same as muted
+  // Page backgrounds (near-black, extremely subtle differences)
+  background: "#030304", // oklch(0.098 0.005 270)
+  sidebar: "#040406", // oklch(0.11 0.005 270)
+  card: "#070709", // oklch(0.13 0.005 270)
+  popover: "#0a0b0d", // oklch(0.15 0.005 270)
+  muted: "#111114", // oklch(0.18 0.005 270)
+  input: "#111114", // same as muted
 
   // Borders
-  border: "#322f3d", // oklch(0.22 0.01 270)
+  border: "#191a1f", // oklch(0.22 0.01 270)
   borderLight: "rgba(255,255,255,0.06)",
   borderSubtle: "rgba(255,255,255,0.04)",
-  sidebarBorder: "#2e2b38", // oklch(0.2 0.01 270)
+  sidebarBorder: "#14161b", // oklch(0.2 0.01 270)
+  secondary: "#14161b", // oklch(0.2 0.01 270)
 
   // Text
-  foreground: "#f0eff2", // oklch(0.95 0 0)
-  mutedForeground: "#908e96", // oklch(0.6 0 0)
-  cardForeground: "#f0eff2",
+  foreground: "#eeeeee", // oklch(0.95 0 0)
+  mutedForeground: "#808080", // oklch(0.6 0 0)
+  cardForeground: "#eeeeee",
 
-  // Primary purple/violet accent
-  primary: "#7c6cfa", // oklch(0.65 0.2 250) — vibrant purple
-  primaryLight: "#a78bfa", // violet-400
-  primaryDark: "#6d5de0",
-  primaryMuted: "rgba(124,108,250,0.15)", // bg-primary/15
+  // Primary — VIVID BLUE (not purple!)
+  primary: "#0091ff", // oklch(0.65 0.2 250)
+  primaryLight: "#38a3ff", // lighter variant
+  primaryDark: "#0080e0",
+  primaryMuted: "rgba(0,145,255,0.15)", // bg-primary/15
+  primaryForeground: "#f8f8f8",
 
-  // Specific accent colors
-  violet300: "#c4b5fd",
-  violet400: "#a78bfa",
-  violet500: "#8b5cf6",
-  violet600: "#7c3aed",
-  purple400: "#c084fc",
-  indigo500: "#6366f1",
-  indigo600: "#4f46e5",
-  teal400: "#2dd4bf",
-  teal500: "#14b8a6",
+  // Accent — teal/cyan
+  accent: "#008d9b", // oklch(0.55 0.18 200)
 
   // Status colors
-  success: "#34d399", // emerald-400
-  successBg: "rgba(16,185,129,0.1)",
-  warning: "#fbbf24", // amber-400
-  warningBg: "rgba(245,158,11,0.1)",
-  destructive: "#f87171", // red-400
-  destructiveBg: "rgba(239,68,68,0.1)",
-  info: "#60a5fa", // blue-400
-  infoBg: "rgba(96,165,250,0.1)",
+  success: "#45ba50", // oklch(0.7 0.18 145)
+  successBg: "rgba(69,186,80,0.1)",
+  successForeground: "#0b0b0b",
+  warning: "#eab532", // oklch(0.8 0.15 85)
+  warningBg: "rgba(234,181,50,0.1)",
+  warningForeground: "#0b0b0b",
+  destructive: "#d40924", // oklch(0.55 0.22 25)
+  destructiveBg: "rgba(212,9,36,0.1)",
+  info: "#0091ff", // same as primary
+  infoBg: "rgba(0,145,255,0.1)",
 
-  // Zinc shades (used throughout)
+  // Web app uses these Tailwind colors in hardcoded classes
+  violet300: "#c4b5fd",
+  violet400: "#a78bfa",
+  violet600: "#7c3aed",
+  purple400: "#c084fc",
+  emerald400: "#34d399",
+  amber400: "#fbbf24",
+  red400: "#f87171",
+  red500: "#ef4444",
+  blue400: "#60a5fa",
+  pink500: "#ec4899",
+  cyan400: "#22d3ee",
+  teal400: "#2dd4bf",
+
+  // Zinc shades
   zinc400: "#a1a1aa",
   zinc500: "#71717a",
   zinc600: "#52525b",
@@ -57,22 +65,19 @@ export const Theme = {
   zinc800: "#27272a",
   zinc900: "#18181b",
 
-  // Glass card
+  // Glass card (from globals.css .glass-card)
   glassCard: "rgba(24,24,27,0.6)",
   glassCardBorder: "rgba(255,255,255,0.06)",
   glassListItem: "rgba(39,39,42,0.25)",
   glassListItemHover: "rgba(39,39,42,0.45)",
-
-  // Scrollbar
-  scrollThumb: "rgba(113,113,122,0.3)",
 };
 
-// Sidebar nav item colors
+// Sidebar nav — web uses purple-400 for active icons but primary blue for borders
 export const NavColors = {
   activeBg: "rgba(255,255,255,0.06)",
-  activeText: "#f0eff2",
-  activeIcon: "#c084fc", // purple-400
-  activeBorder: "#7c3aed", // violet-600
-  inactiveText: "#908e96",
+  activeText: "#eeeeee",
+  activeIcon: "#0091ff", // primary blue
+  activeBorder: "#0091ff",
+  inactiveText: "#808080",
   hoverBg: "rgba(255,255,255,0.03)",
 };

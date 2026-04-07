@@ -19,7 +19,7 @@ export default function CustomersScreen() {
     queryFn: () => fetchCustomers(search || undefined),
   });
 
-  const customers: Customer[] = (data as any)?.data ?? (data as any) ?? [];
+  const customers: Customer[] = (data as any)?.data?.customers ?? (data as any)?.data ?? (data as any)?.customers ?? [];
 
   const renderCustomer = useCallback(
     ({ item }: { item: Customer }) => {

@@ -92,7 +92,7 @@ export function Sidebar({ onClose }: Props) {
       >
         {active && (
           <LinearGradient
-            colors={["#7c3aed", "#4f46e5"]}
+            colors={["#0091ff", "#0080e0"]}
             style={styles.activeBorder}
           />
         )}
@@ -353,7 +353,7 @@ const styles = StyleSheet.create({
     right: -4,
     bottom: -4,
     borderRadius: 10,
-    backgroundColor: "rgba(139,92,246,0.15)",
+    backgroundColor: "rgba(0,145,255,0.15)",
     zIndex: 0,
   },
   logoLetter: {
