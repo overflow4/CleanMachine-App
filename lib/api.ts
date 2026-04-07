@@ -55,10 +55,16 @@ async function buildHeaders(): Promise<Record<string, string>> {
     "Content-Type": "application/json",
   };
   if (token) {
-    // Send token both as Cookie and Authorization header.
-    // The server reads cookies, but React Native cross-origin fetch
-    // may not reliably deliver Cookie headers. The Cookie header
-    // format is what Next.js middleware parses.
+    // React Native on iOS strips manually-set Cookie headers for
+    // cross-origin requests (NSURLSession security policy). To work
+    // around this, we send the token as a Cookie header AND as a
+    // custom x-session-token header. The Cookie approach works on
+    // Android and sometimes iOS; the custom header is a fallback
+    // that requires server support.
+    //
+    // Most importantly, we also use credentials:"include" so that
+    // any cookies set by Set-Cookie from the login response are
+    // stored in the native cookie jar and sent automatically.
     headers["Cookie"] = `winbros_session=${token}`;
   }
   return headers;
@@ -77,6 +83,11 @@ export async function apiFetch<T = unknown>(
       ...headers,
       ...(options.headers as Record<string, string>),
     },
+    // credentials:"include" tells the native HTTP layer to send
+    // cookies from its jar. The login response sets Set-Cookie
+    // which iOS stores, and then sends automatically on subsequent
+    // requests to the same domain.
+    credentials: "include",
   });
 
   if (!res.ok) {
@@ -101,6 +112,11 @@ export async function login(username: string, password: string) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password }),
+    // credentials:"include" ensures the Set-Cookie header from the
+    // server response is stored in the native cookie jar. iOS will
+    // then automatically send this cookie on future requests to the
+    // same domain, which is how the session auth works.
+    credentials: "include",
   });
   const data = await res.json();
   if (!res.ok || !data.success) {

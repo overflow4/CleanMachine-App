@@ -1,67 +1,77 @@
 import React, { useState } from "react";
 import {
-  View,
-  Text,
-  ScrollView,
-  RefreshControl,
-  TouchableOpacity,
-  Alert,
-  TextInput,
-  StyleSheet,
+  View, Text, ScrollView, RefreshControl, TouchableOpacity,
+  Alert, TextInput, StyleSheet, Switch, ActivityIndicator,
 } from "react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { fetchSettings, updateSettings, fetchTeams, manageTeam } from "@/lib/api";
+import { fetchSettings, updateSettings, fetchTeams, apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { GlassCard } from "@/components/ui/GlassCard";
-import { Button } from "@/components/ui/Button";
-import { Badge } from "@/components/ui/Badge";
 import { LoadingScreen } from "@/components/ui/LoadingScreen";
 import { Theme } from "@/constants/colors";
 import { Cleaner, TenantSettings } from "@/types";
 
-type Tab = "settings" | "cleaners" | "tenant";
+const TEST_PERSONS = [
+  { name: "Dominic", phone: "4242755847" },
+  { name: "Daniel", phone: "4243270461" },
+  { name: "Jack", phone: "4157204580", email: "JasperGrenager@gmail.com" },
+];
+
+type Tab = "controls" | "settings" | "cleaners" | "tenant";
 
 export default function AdminScreen() {
-  const [activeTab, setActiveTab] = useState<Tab>("settings");
-  const { tenant } = useAuth();
+  const [activeTab, setActiveTab] = useState<Tab>("controls");
+  const { tenant, refresh } = useAuth();
   const queryClient = useQueryClient();
+  const [resettingPerson, setResettingPerson] = useState<string | null>(null);
+  const [resetResult, setResetResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [editSettings, setEditSettings] = useState<Record<string, string>>({});
 
-  const settingsQuery = useQuery({
-    queryKey: ["settings"],
-    queryFn: fetchSettings,
-  });
+  const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: fetchSettings });
+  const teamsQuery = useQuery({ queryKey: ["teams"], queryFn: fetchTeams, enabled: activeTab === "cleaners" });
 
-  const teamsQuery = useQuery({
-    queryKey: ["teams"],
-    queryFn: fetchTeams,
-    enabled: activeTab === "cleaners",
-  });
-
-  const settings: TenantSettings = (settingsQuery.data as any)?.settings ?? {};
-  const cleaners: Cleaner[] = (teamsQuery.data as any)?.cleaners ?? (teamsQuery.data as any)?.data ?? [];
+  const settings: TenantSettings = (settingsQuery.data as any)?.settings ?? (settingsQuery.data as any)?.data?.settings ?? {};
+  const cleaners: Cleaner[] = (teamsQuery.data as any)?.data?.cleaners ?? (teamsQuery.data as any)?.cleaners ?? (teamsQuery.data as any)?.data ?? [];
 
   const settingsMutation = useMutation({
     mutationFn: (data: Record<string, unknown>) => updateSettings(data),
     onSuccess: () => {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       queryClient.invalidateQueries({ queryKey: ["settings"] });
-      Alert.alert("Success", "Settings updated");
     },
     onError: (err: Error) => Alert.alert("Error", err.message),
   });
 
-  const [editSettings, setEditSettings] = useState<Record<string, string>>({});
-
-  const handleSaveSettings = () => {
-    if (Object.keys(editSettings).length === 0) return;
-    settingsMutation.mutate(editSettings);
-    setEditSettings({});
+  const resetPerson = async (person: typeof TEST_PERSONS[0]) => {
+    setResettingPerson(person.name);
+    setResetResult(null);
+    try {
+      const res: any = await apiFetch("/api/admin/reset-customer", {
+        method: "POST",
+        body: JSON.stringify({ phoneNumber: person.phone, email: (person as any).email, crossTenant: true }),
+      });
+      setResetResult({ success: true, message: `${person.name} reset successfully` });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (err: any) {
+      setResetResult({ success: false, message: err.message });
+    } finally {
+      setResettingPerson(null);
+    }
   };
 
-  const updateField = (key: string, value: string) => {
-    setEditSettings((prev) => ({ ...prev, [key]: value }));
+  const toggleTenantField = async (field: string, value: boolean) => {
+    try {
+      await apiFetch("/api/admin/tenants", {
+        method: "PATCH",
+        body: JSON.stringify({ tenantId: tenant?.id, [field]: value }),
+      });
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      refresh().catch(() => {});
+    } catch (err: any) {
+      Alert.alert("Error", err.message);
+    }
   };
 
   const onRefresh = async () => {
@@ -71,83 +81,147 @@ export default function AdminScreen() {
   if (settingsQuery.isLoading) return <LoadingScreen message="Loading admin..." />;
 
   const tabs: { key: Tab; label: string }[] = [
+    { key: "controls", label: "Controls" },
     { key: "settings", label: "Settings" },
     { key: "cleaners", label: "Cleaners" },
-    { key: "tenant", label: "Tenant" },
-  ];
-
-  const settingsFields = [
-    { key: "business_name", label: "Business Name" },
-    { key: "business_phone", label: "Business Phone" },
-    { key: "business_email", label: "Business Email" },
-    { key: "business_address", label: "Business Address" },
-    { key: "business_hours_start", label: "Hours Start" },
-    { key: "business_hours_end", label: "Hours End" },
+    { key: "tenant", label: "Info" },
   ];
 
   return (
-    <View style={styles.container}>
-      <View style={styles.tabBar}>
-        {tabs.map((tab) => (
+    <View style={s.container}>
+      {/* Reset Buttons */}
+      <View style={s.resetRow}>
+        {TEST_PERSONS.map((person) => (
           <TouchableOpacity
-            key={tab.key}
-            onPress={() => setActiveTab(tab.key)}
-            style={[styles.tab, activeTab === tab.key && styles.tabActive]}
+            key={person.name}
+            onPress={() => resetPerson(person)}
+            disabled={resettingPerson !== null}
+            style={[s.resetBtn, resettingPerson !== null && { opacity: 0.5 }]}
+            activeOpacity={0.7}
           >
-            <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>
-              {tab.label}
+            {resettingPerson === person.name ? (
+              <ActivityIndicator size="small" color={Theme.red400} />
+            ) : (
+              <Ionicons name="refresh" size={14} color={Theme.red400} />
+            )}
+            <Text style={s.resetBtnText}>
+              {resettingPerson === person.name ? "Resetting..." : `Reset ${person.name}`}
             </Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      <ScrollView
-        style={{ flex: 1 }}
-        refreshControl={<RefreshControl refreshing={settingsQuery.isRefetching} onRefresh={onRefresh} tintColor={Theme.primary} />}
-      >
-        {activeTab === "settings" && (
-          <View style={styles.listPadding}>
-            <GlassCard style={styles.formCard}>
-              {settingsFields.map((field) => (
-                <View key={field.key} style={styles.fieldGroup}>
-                  <Text style={styles.fieldLabel}>{field.label}</Text>
-                  <TextInput
-                    defaultValue={(settings[field.key] ?? "").toString()}
-                    onChangeText={(v) => updateField(field.key, v)}
-                    style={styles.input}
-                    placeholderTextColor={Theme.mutedForeground}
-                  />
-                </View>
-              ))}
-              <Button
-                title="Save Settings"
-                onPress={handleSaveSettings}
-                loading={settingsMutation.isPending}
+      {/* Reset result banner */}
+      {resetResult && (
+        <View style={[s.resultBanner, { borderColor: resetResult.success ? "rgba(69,186,80,0.3)" : "rgba(212,9,36,0.3)", backgroundColor: resetResult.success ? "rgba(69,186,80,0.1)" : "rgba(212,9,36,0.1)" }]}>
+          <Text style={{ color: resetResult.success ? Theme.success : Theme.destructive, fontSize: 13 }}>{resetResult.message}</Text>
+        </View>
+      )}
+
+      {/* Tab bar */}
+      <View style={s.tabBar}>
+        {tabs.map((tab) => (
+          <TouchableOpacity key={tab.key} onPress={() => setActiveTab(tab.key)} style={[s.tab, activeTab === tab.key && s.tabActive]}>
+            <Text style={[s.tabText, activeTab === tab.key && s.tabTextActive]}>{tab.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={s.scrollContent}
+        refreshControl={<RefreshControl refreshing={settingsQuery.isRefetching} onRefresh={onRefresh} tintColor={Theme.primary} />}>
+
+        {/* Controls Tab */}
+        {activeTab === "controls" && (
+          <View style={s.section}>
+            <GlassCard>
+              <Text style={s.sectionTitle}>System Controls</Text>
+              <ToggleRow
+                label="SMS Auto-Response"
+                description="AI responds to incoming messages automatically"
+                value={tenant?.workflow_config?.sms_auto_response_enabled ?? false}
+                onToggle={(v) => toggleTenantField("sms_auto_response_enabled", v)}
+              />
+              <ToggleRow
+                label="Business Active"
+                description="When off, all automated systems are paused"
+                value={tenant?.active ?? true}
+                onToggle={(v) => toggleTenantField("active", v)}
+              />
+              <ToggleRow
+                label="Auto Cleaner Assignment"
+                description="Automatically assign cleaners to new jobs"
+                value={tenant?.workflow_config?.cleaner_assignment_auto ?? false}
+                onToggle={(v) => toggleTenantField("cleaner_assignment_auto", v)}
+              />
+              <ToggleRow
+                label="Lead Followup"
+                description={`${tenant?.workflow_config?.lead_followup_stages ?? 0} stages`}
+                value={tenant?.workflow_config?.lead_followup_enabled ?? false}
+                onToggle={(v) => toggleTenantField("lead_followup_enabled", v)}
+              />
+              <ToggleRow
+                label="Require Deposit"
+                description={`${tenant?.workflow_config?.deposit_percentage ?? 0}% of job value`}
+                value={tenant?.workflow_config?.require_deposit ?? false}
+                onToggle={(v) => toggleTenantField("require_deposit", v)}
               />
             </GlassCard>
           </View>
         )}
 
+        {/* Settings Tab */}
+        {activeTab === "settings" && (
+          <View style={s.section}>
+            <GlassCard>
+              {[
+                { key: "business_name", label: "Business Name" },
+                { key: "business_phone", label: "Business Phone" },
+                { key: "business_email", label: "Business Email" },
+                { key: "business_address", label: "Business Address" },
+                { key: "business_hours_start", label: "Hours Start" },
+                { key: "business_hours_end", label: "Hours End" },
+              ].map((field) => (
+                <View key={field.key} style={s.fieldGroup}>
+                  <Text style={s.fieldLabel}>{field.label}</Text>
+                  <TextInput
+                    defaultValue={(settings[field.key] ?? "").toString()}
+                    onChangeText={(v) => setEditSettings((p) => ({ ...p, [field.key]: v }))}
+                    style={s.input}
+                    placeholderTextColor={Theme.mutedForeground}
+                  />
+                </View>
+              ))}
+              {Object.keys(editSettings).length > 0 && (
+                <TouchableOpacity
+                  onPress={() => { settingsMutation.mutate(editSettings); setEditSettings({}); }}
+                  style={s.saveBtn}
+                >
+                  <Text style={s.saveBtnText}>
+                    {settingsMutation.isPending ? "Saving..." : "Save Settings"}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </GlassCard>
+          </View>
+        )}
+
+        {/* Cleaners Tab */}
         {activeTab === "cleaners" && (
-          <View style={styles.listPadding}>
+          <View style={s.section}>
             {cleaners.map((cleaner, i) => (
-              <GlassCard key={cleaner.id || i} style={styles.cardSpacing}>
-                <View style={styles.row}>
-                  <View style={styles.avatar}>
-                    <Text style={styles.avatarText}>{cleaner.name?.[0]?.toUpperCase()}</Text>
-                  </View>
+              <GlassCard key={cleaner.id || i} style={{ marginBottom: 8 }}>
+                <View style={s.row}>
+                  <View style={s.avatar}><Text style={s.avatarText}>{cleaner.name?.[0]?.toUpperCase()}</Text></View>
                   <View style={{ marginLeft: 12, flex: 1 }}>
-                    <Text style={styles.nameText}>{cleaner.name}</Text>
-                    <Text style={styles.subText}>{cleaner.phone || cleaner.email || ""}</Text>
+                    <Text style={s.nameText}>{cleaner.name}</Text>
+                    <Text style={s.subText}>{cleaner.phone || cleaner.email || ""}</Text>
                   </View>
                   <View style={{ alignItems: "flex-end" }}>
-                    <Badge
-                      label={cleaner.active ? "Active" : "Inactive"}
-                      variant={cleaner.active ? "success" : "error"}
-                    />
-                    {cleaner.employee_type && (
-                      <Text style={styles.employeeType}>{cleaner.employee_type}</Text>
-                    )}
+                    <View style={[s.badge, { backgroundColor: cleaner.active ? Theme.successBg : Theme.destructiveBg }]}>
+                      <Text style={{ fontSize: 11, fontWeight: "500", color: cleaner.active ? Theme.success : Theme.destructive }}>
+                        {cleaner.active ? "Active" : "Inactive"}
+                      </Text>
+                    </View>
                   </View>
                 </View>
               </GlassCard>
@@ -155,24 +229,17 @@ export default function AdminScreen() {
           </View>
         )}
 
+        {/* Info Tab */}
         {activeTab === "tenant" && (
-          <View style={styles.listPadding}>
+          <View style={s.section}>
             <GlassCard>
-              <Text style={styles.sectionTitle}>Tenant Information</Text>
+              <Text style={s.sectionTitle}>Tenant Information</Text>
               <InfoRow label="Name" value={tenant?.name} />
               <InfoRow label="Business" value={tenant?.business_name} />
               <InfoRow label="Slug" value={tenant?.slug} />
               <InfoRow label="Status" value={tenant?.active ? "Active" : "Inactive"} />
-              {tenant?.workflow_config && (
-                <>
-                  <Text style={styles.subsectionTitle}>Workflow Config</Text>
-                  <InfoRow label="Stripe" value={tenant.workflow_config.use_stripe ? "Enabled" : "Disabled"} />
-                  <InfoRow label="Auto Assignment" value={tenant.workflow_config.cleaner_assignment_auto ? "On" : "Off"} />
-                  <InfoRow label="Assignment Mode" value={tenant.workflow_config.assignment_mode || "N/A"} />
-                  <InfoRow label="Deposit Required" value={tenant.workflow_config.require_deposit ? `${tenant.workflow_config.deposit_percentage}%` : "No"} />
-                  <InfoRow label="Lead Followup" value={tenant.workflow_config.lead_followup_enabled ? `${tenant.workflow_config.lead_followup_stages} stages` : "Off"} />
-                </>
-              )}
+              <InfoRow label="Stripe" value={tenant?.workflow_config?.use_stripe ? "Enabled" : "Disabled"} />
+              <InfoRow label="Assignment Mode" value={tenant?.workflow_config?.assignment_mode || "N/A"} />
             </GlassCard>
           </View>
         )}
@@ -181,131 +248,68 @@ export default function AdminScreen() {
   );
 }
 
-function InfoRow({ label, value }: { label: string; value?: string | null }) {
+function ToggleRow({ label, description, value, onToggle }: {
+  label: string; description: string; value: boolean; onToggle: (v: boolean) => void;
+}) {
   return (
-    <View style={infoStyles.row}>
-      <Text style={infoStyles.label}>{label}</Text>
-      <Text style={infoStyles.value}>{value || "\u2014"}</Text>
+    <View style={s.toggleRow}>
+      <View style={{ flex: 1 }}>
+        <Text style={s.toggleLabel}>{label}</Text>
+        <Text style={s.toggleDesc}>{description}</Text>
+      </View>
+      <Switch
+        value={value}
+        onValueChange={onToggle}
+        trackColor={{ false: Theme.border, true: "rgba(0,145,255,0.3)" }}
+        thumbColor={value ? Theme.primary : Theme.mutedForeground}
+      />
     </View>
   );
 }
 
-const infoStyles = StyleSheet.create({
-  row: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    borderBottomWidth: 1,
-    borderBottomColor: Theme.border,
-    paddingVertical: 10,
-  },
-  label: {
-    color: Theme.mutedForeground,
-  },
-  value: {
-    fontWeight: "500",
-    color: Theme.foreground,
-  },
-});
+function InfoRow({ label, value }: { label: string; value?: string | null }) {
+  return (
+    <View style={s.infoRow}>
+      <Text style={{ color: Theme.mutedForeground, fontSize: 14 }}>{label}</Text>
+      <Text style={{ color: Theme.foreground, fontWeight: "500", fontSize: 14 }}>{value || "\u2014"}</Text>
+    </View>
+  );
+}
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Theme.background,
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: Theme.background },
+  resetRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingHorizontal: 16, paddingTop: 4, paddingBottom: 8 },
+  resetBtn: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 6,
+    borderWidth: 1, borderColor: "rgba(212,9,36,0.3)", backgroundColor: "rgba(212,9,36,0.1)",
   },
-  tabBar: {
-    flexDirection: "row",
-    marginHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 12,
-    borderRadius: 8,
-    backgroundColor: Theme.muted,
-    padding: 4,
+  resetBtnText: { fontSize: 12, fontWeight: "500", color: Theme.red400 },
+  resultBanner: {
+    marginHorizontal: 16, marginBottom: 8, paddingHorizontal: 12, paddingVertical: 10,
+    borderRadius: 8, borderWidth: 1,
   },
-  tab: {
-    flex: 1,
-    alignItems: "center",
-    borderRadius: 6,
-    paddingVertical: 10,
-  },
-  tabActive: {
-    backgroundColor: Theme.card,
-  },
-  tabText: {
-    fontSize: 13,
-    fontWeight: "500",
-    color: Theme.mutedForeground,
-  },
-  tabTextActive: {
-    color: Theme.primary,
-  },
-  listPadding: {
-    paddingHorizontal: 16,
-  },
-  formCard: {
-    marginBottom: 16,
-  },
-  fieldGroup: {
-    marginBottom: 12,
-  },
-  fieldLabel: {
-    marginBottom: 4,
-    fontSize: 13,
-    fontWeight: "500",
-    color: Theme.mutedForeground,
-  },
-  input: {
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: Theme.border,
-    backgroundColor: Theme.muted,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    color: Theme.foreground,
-    fontSize: 15,
-  },
-  cardSpacing: {
-    marginBottom: 8,
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Theme.primaryMuted,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarText: {
-    fontWeight: "600",
-    color: Theme.primaryLight,
-  },
-  nameText: {
-    fontWeight: "500",
-    color: Theme.foreground,
-  },
-  subText: {
-    fontSize: 13,
-    color: Theme.mutedForeground,
-  },
-  employeeType: {
-    marginTop: 4,
-    fontSize: 11,
-    color: Theme.zinc400,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: Theme.foreground,
-    marginBottom: 12,
-  },
-  subsectionTitle: {
-    marginTop: 12,
-    marginBottom: 8,
-    fontSize: 13,
-    fontWeight: "600",
-    color: Theme.mutedForeground,
-  },
+  tabBar: { flexDirection: "row", marginHorizontal: 16, marginBottom: 12, borderRadius: 8, backgroundColor: Theme.muted, padding: 4 },
+  tab: { flex: 1, alignItems: "center", borderRadius: 6, paddingVertical: 10 },
+  tabActive: { backgroundColor: Theme.card },
+  tabText: { fontSize: 13, fontWeight: "500", color: Theme.mutedForeground },
+  tabTextActive: { color: Theme.primary },
+  scrollContent: { paddingBottom: 32 },
+  section: { paddingHorizontal: 16, gap: 8 },
+  sectionTitle: { fontSize: 17, fontWeight: "600", color: Theme.foreground, marginBottom: 8 },
+  fieldGroup: { marginBottom: 12 },
+  fieldLabel: { marginBottom: 4, fontSize: 13, fontWeight: "500", color: Theme.mutedForeground },
+  input: { borderRadius: 8, borderWidth: 1, borderColor: Theme.border, backgroundColor: Theme.muted, paddingHorizontal: 12, paddingVertical: 10, color: Theme.foreground, fontSize: 15 },
+  saveBtn: { borderRadius: 8, backgroundColor: Theme.primary, paddingVertical: 12, alignItems: "center", marginTop: 8 },
+  saveBtnText: { color: "#fff", fontWeight: "600", fontSize: 14 },
+  row: { flexDirection: "row", alignItems: "center" },
+  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: Theme.primaryMuted, alignItems: "center", justifyContent: "center" },
+  avatarText: { fontWeight: "600", color: Theme.primaryLight },
+  nameText: { fontWeight: "500", color: Theme.foreground },
+  subText: { fontSize: 13, color: Theme.mutedForeground },
+  badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
+  toggleRow: { flexDirection: "row", alignItems: "center", paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" },
+  toggleLabel: { fontSize: 14, fontWeight: "500", color: Theme.foreground },
+  toggleDesc: { fontSize: 12, color: Theme.mutedForeground, marginTop: 2 },
+  infoRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" },
 });

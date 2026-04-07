@@ -1,13 +1,16 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
   TouchableOpacity,
   Text,
   StyleSheet,
   Pressable,
+  Switch,
 } from "react-native";
 import { Stack, usePathname } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useAuth } from "@/lib/auth";
+import { apiFetch } from "@/lib/api";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Gesture,
@@ -52,9 +55,32 @@ const screenTitles: Record<string, string> = {
 
 export default function DashboardLayout() {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [systemActive, setSystemActive] = useState(true);
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
   const translateX = useSharedValue(-DRAWER_WIDTH);
+  const { tenant, refresh } = useAuth();
+
+  // Sync system active from tenant
+  useEffect(() => {
+    if (tenant?.active !== undefined) {
+      setSystemActive(tenant.active);
+    }
+  }, [tenant?.active]);
+
+  const toggleSystem = useCallback(async (newValue: boolean) => {
+    const prev = systemActive;
+    setSystemActive(newValue); // optimistic
+    try {
+      await apiFetch("/api/tenant/status", {
+        method: "POST",
+        body: JSON.stringify({ active: newValue }),
+      });
+      refresh().catch(() => {});
+    } catch {
+      setSystemActive(prev); // rollback
+    }
+  }, [systemActive, refresh]);
 
   const openDrawer = useCallback(() => {
     setDrawerOpen(true);
@@ -122,9 +148,25 @@ export default function DashboardLayout() {
             </Text>
 
             <View style={styles.topNavRight}>
-              <View style={styles.statusPill}>
-                <View style={styles.statusDot} />
-                <Text style={styles.statusText}>Online</Text>
+              {/* System Active Toggle */}
+              <View style={[styles.togglePill, { borderColor: systemActive ? "rgba(69,186,80,0.3)" : "rgba(212,9,36,0.3)" }]}>
+                <View style={[styles.toggleIconBox, { backgroundColor: systemActive ? "rgba(69,186,80,0.1)" : "rgba(212,9,36,0.1)" }]}>
+                  <Ionicons
+                    name={systemActive ? "power" : "power-outline"}
+                    size={14}
+                    color={systemActive ? Theme.success : Theme.destructive}
+                  />
+                </View>
+                <Text style={[styles.toggleLabel, { color: systemActive ? Theme.success : Theme.destructive }]}>
+                  {systemActive ? "Active" : "Offline"}
+                </Text>
+                <Switch
+                  value={systemActive}
+                  onValueChange={toggleSystem}
+                  trackColor={{ false: "rgba(212,9,36,0.3)", true: "rgba(69,186,80,0.3)" }}
+                  thumbColor={systemActive ? Theme.success : Theme.destructive}
+                  style={{ transform: [{ scaleX: 0.7 }, { scaleY: 0.7 }] }}
+                />
               </View>
             </View>
           </View>
@@ -194,13 +236,14 @@ const styles = StyleSheet.create({
   menuButton: { width: 36, height: 36, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   topNavTitle: { flex: 1, fontSize: 16, fontWeight: "600", color: Theme.foreground },
   topNavRight: { flexDirection: "row", alignItems: "center", gap: 8 },
-  statusPill: {
+  togglePill: {
     flexDirection: "row", alignItems: "center", gap: 6,
-    paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20,
-    backgroundColor: "rgba(16,185,129,0.1)",
+    paddingLeft: 4, paddingRight: 2, paddingVertical: 3,
+    borderRadius: 8, borderWidth: 1,
+    backgroundColor: "rgba(10,11,13,0.5)",
   },
-  statusDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#22c55e" },
-  statusText: { color: "#34d399", fontSize: 12, fontWeight: "500" },
+  toggleIconBox: { padding: 4, borderRadius: 6 },
+  toggleLabel: { fontSize: 12, fontWeight: "500" },
   content: { flex: 1, backgroundColor: Theme.background },
   overlay: {
     ...StyleSheet.absoluteFillObject,
