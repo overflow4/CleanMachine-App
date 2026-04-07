@@ -15,6 +15,7 @@ import {
 import { useRouter } from "expo-router";
 import { useAuth } from "@/lib/auth";
 import { NeuralBackground } from "@/components/NeuralBackground";
+import { StaticBackground } from "@/components/StaticBackground";
 import { DotLoader } from "@/components/DotLoader";
 import { LinearGradient } from "expo-linear-gradient";
 import Svg, { Path } from "react-native-svg";
@@ -38,6 +39,7 @@ export default function AppEntryPage() {
     portalUrl: string;
   } | null>(null);
   const [staffSuccess, setStaffSuccess] = useState(false);
+  const passwordRef = useRef<TextInput>(null);
 
   // Blinking cursor animation
   const cursorOpacity = useRef(new Animated.Value(1)).current;
@@ -247,7 +249,7 @@ export default function AppEntryPage() {
 
   return (
     <View style={styles.container}>
-      <NeuralBackground color="#00ffaa" particleCount={200} speed={0.8} />
+      <StaticBackground />
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.centerContent}
@@ -433,7 +435,7 @@ export default function AppEntryPage() {
                         placeholderTextColor="#525252"
                         keyboardType="phone-pad"
                         autoComplete="tel"
-                        autoFocus
+                        textContentType="telephoneNumber"
                         editable={!loading}
                         style={[styles.input, { fontSize: 18 }]}
                       />
@@ -528,7 +530,9 @@ export default function AppEntryPage() {
                         autoCorrect={false}
                         autoComplete="username"
                         textContentType="username"
-                        autoFocus
+                        returnKeyType="next"
+                        onSubmitEditing={() => passwordRef.current?.focus()}
+                        blurOnSubmit={false}
                         editable={!loading}
                         style={[styles.monoText, styles.input]}
                       />
@@ -540,6 +544,7 @@ export default function AppEntryPage() {
                         PASSWORD
                       </Text>
                       <TextInput
+                        ref={passwordRef}
                         value={password}
                         onChangeText={setPassword}
                         placeholder="--------"
@@ -547,6 +552,8 @@ export default function AppEntryPage() {
                         secureTextEntry
                         autoComplete="password"
                         textContentType="password"
+                        returnKeyType="go"
+                        onSubmitEditing={handleStaffLogin}
                         editable={!loading}
                         style={[styles.monoText, styles.input]}
                       />
