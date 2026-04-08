@@ -10,13 +10,45 @@ import { fetchTeams, fetchTeamMessages, fetchTeamEarnings, manageTeam, sendEmplo
 import { GlassCard } from "@/components/ui/GlassCard";
 import { LoadingScreen } from "@/components/ui/LoadingScreen";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Modal } from "@/components/ui/Modal";
+import { InputField, ActionButton, ToggleField } from "@/components/ui/FormField";
 import { Theme } from "@/constants/colors";
 
 type Tab = "teams" | "manage" | "messages" | "earnings";
 
+interface CleanerForm {
+  name: string;
+  phone: string;
+  email: string;
+  employee_type: "technician" | "salesman";
+  is_team_lead: boolean;
+}
+
+interface TeamForm {
+  name: string;
+  lead_id: string;
+}
+
+const emptyCleanerForm: CleanerForm = {
+  name: "",
+  phone: "",
+  email: "",
+  employee_type: "technician",
+  is_team_lead: false,
+};
+
 export default function TeamsScreen() {
   const [activeTab, setActiveTab] = useState<Tab>("teams");
   const queryClient = useQueryClient();
+
+  // Cleaner modal state
+  const [cleanerModalVisible, setCleanerModalVisible] = useState(false);
+  const [editingCleaner, setEditingCleaner] = useState<any>(null);
+  const [cleanerForm, setCleanerForm] = useState<CleanerForm>(emptyCleanerForm);
+
+  // Team modal state
+  const [teamModalVisible, setTeamModalVisible] = useState(false);
+  const [teamForm, setTeamForm] = useState<TeamForm>({ name: "", lead_id: "" });
 
   const teamsQuery = useQuery({ queryKey: ["teams"], queryFn: fetchTeams });
 
@@ -47,6 +79,71 @@ export default function TeamsScreen() {
     onError: (err: Error) => Alert.alert("Error", err.message),
   });
 
+  const createCleanerMutation = useMutation({
+    mutationFn: (data: CleanerForm) => manageTeam("create_cleaner", data),
+    onSuccess: () => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      queryClient.invalidateQueries({ queryKey: ["manage-teams"] });
+      queryClient.invalidateQueries({ queryKey: ["teams"] });
+      setCleanerModalVisible(false);
+      setCleanerForm(emptyCleanerForm);
+      Alert.alert("Success", "Cleaner created");
+    },
+    onError: (err: Error) => Alert.alert("Error", err.message),
+  });
+
+  const updateCleanerMutation = useMutation({
+    mutationFn: (data: { cleaner_id: number } & CleanerForm) => manageTeam("update_cleaner", data),
+    onSuccess: () => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      queryClient.invalidateQueries({ queryKey: ["manage-teams"] });
+      queryClient.invalidateQueries({ queryKey: ["teams"] });
+      setCleanerModalVisible(false);
+      setEditingCleaner(null);
+      setCleanerForm(emptyCleanerForm);
+      Alert.alert("Success", "Cleaner updated");
+    },
+    onError: (err: Error) => Alert.alert("Error", err.message),
+  });
+
+  const deleteCleanerMutation = useMutation({
+    mutationFn: (cleanerId: number) => manageTeam("delete_cleaner", { cleaner_id: cleanerId }),
+    onSuccess: () => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      queryClient.invalidateQueries({ queryKey: ["manage-teams"] });
+      queryClient.invalidateQueries({ queryKey: ["teams"] });
+      setCleanerModalVisible(false);
+      setEditingCleaner(null);
+      setCleanerForm(emptyCleanerForm);
+      Alert.alert("Success", "Cleaner deleted");
+    },
+    onError: (err: Error) => Alert.alert("Error", err.message),
+  });
+
+  const createTeamMutation = useMutation({
+    mutationFn: (data: TeamForm) => manageTeam("create_team", data),
+    onSuccess: () => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      queryClient.invalidateQueries({ queryKey: ["teams"] });
+      queryClient.invalidateQueries({ queryKey: ["manage-teams"] });
+      setTeamModalVisible(false);
+      setTeamForm({ name: "", lead_id: "" });
+      Alert.alert("Success", "Team created");
+    },
+    onError: (err: Error) => Alert.alert("Error", err.message),
+  });
+
+  const deleteTeamMutation = useMutation({
+    mutationFn: (teamId: number) => manageTeam("delete_team", { team_id: teamId }),
+    onSuccess: () => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      queryClient.invalidateQueries({ queryKey: ["teams"] });
+      queryClient.invalidateQueries({ queryKey: ["manage-teams"] });
+      Alert.alert("Success", "Team deleted");
+    },
+    onError: (err: Error) => Alert.alert("Error", err.message),
+  });
+
   // Parse teams data — API returns { data: Team[], unassigned_cleaners: Cleaner[] }
   const teamsRaw: any = teamsQuery.data;
   const teamsList: any[] = Array.isArray(teamsRaw?.data) ? teamsRaw.data : Object.values(teamsRaw?.data ?? {});
@@ -68,6 +165,80 @@ export default function TeamsScreen() {
     ]);
   }, [activeTab]);
 
+  const openCreateCleaner = () => {
+    setEditingCleaner(null);
+    setCleanerForm(emptyCleanerForm);
+    setCleanerModalVisible(true);
+  };
+
+  const openEditCleaner = (cleaner: any) => {
+    setEditingCleaner(cleaner);
+    setCleanerForm({
+      name: cleaner.name || "",
+      phone: cleaner.phone || "",
+      email: cleaner.email || "",
+      employee_type: cleaner.employee_type || "technician",
+      is_team_lead: cleaner.is_team_lead ?? false,
+    });
+    setCleanerModalVisible(true);
+  };
+
+  const handleSaveCleaner = () => {
+    if (!cleanerForm.name.trim()) {
+      Alert.alert("Validation", "Name is required");
+      return;
+    }
+    if (editingCleaner) {
+      updateCleanerMutation.mutate({ cleaner_id: Number(editingCleaner.id), ...cleanerForm });
+    } else {
+      createCleanerMutation.mutate(cleanerForm);
+    }
+  };
+
+  const handleDeleteCleaner = () => {
+    if (!editingCleaner) return;
+    Alert.alert(
+      "Delete Cleaner",
+      `Are you sure you want to delete ${editingCleaner.name}? This action cannot be undone.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => deleteCleanerMutation.mutate(Number(editingCleaner.id)),
+        },
+      ]
+    );
+  };
+
+  const handleDeleteTeam = (team: any) => {
+    Alert.alert(
+      "Delete Team",
+      `Are you sure you want to delete "${team.name}"? This action cannot be undone.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => deleteTeamMutation.mutate(Number(team.id)),
+        },
+      ]
+    );
+  };
+
+  const openCreateTeam = () => {
+    setTeamForm({ name: "", lead_id: "" });
+    setTeamModalVisible(true);
+  };
+
+  const handleSaveTeam = () => {
+    if (!teamForm.name.trim()) {
+      Alert.alert("Validation", "Team name is required");
+      return;
+    }
+    createTeamMutation.mutate(teamForm);
+  };
+
   if (teamsQuery.isLoading) return <LoadingScreen message="Loading teams..." />;
 
   const tabs: { key: Tab; label: string }[] = [
@@ -76,6 +247,8 @@ export default function TeamsScreen() {
     { key: "messages", label: "Messages" },
     { key: "earnings", label: "Earnings" },
   ];
+
+  const isSaving = createCleanerMutation.isPending || updateCleanerMutation.isPending;
 
   return (
     <View style={s.container}>
@@ -106,6 +279,9 @@ export default function TeamsScreen() {
                       <Text style={s.teamName}>{team.name}</Text>
                       <Text style={s.sub}>{team.members?.length ?? 0} members</Text>
                     </View>
+                    <TouchableOpacity onPress={() => handleDeleteTeam(team)} style={s.deleteTeamBtn}>
+                      <Ionicons name="trash-outline" size={16} color={Theme.destructive} />
+                    </TouchableOpacity>
                   </View>
                   {team.members?.map((m: any, j: number) => (
                     <View key={m.id || j} style={s.memberRow}>
@@ -155,38 +331,54 @@ export default function TeamsScreen() {
         {/* Manage Tab — all cleaners with actions */}
         {activeTab === "manage" && (
           <>
+            <View style={s.manageActions}>
+              <TouchableOpacity onPress={openCreateCleaner} style={s.manageBtn}>
+                <Ionicons name="person-add-outline" size={16} color="#fff" />
+                <Text style={s.manageBtnText}>Create Cleaner</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={openCreateTeam} style={[s.manageBtn, { backgroundColor: Theme.success }]}>
+                <Ionicons name="people-outline" size={16} color="#fff" />
+                <Text style={s.manageBtnText}>Create Team</Text>
+              </TouchableOpacity>
+            </View>
+
             {manageQuery.isLoading ? (
               <LoadingScreen message="Loading..." />
             ) : allCleaners.length === 0 ? (
               <EmptyState icon="people-outline" title="No cleaners" />
             ) : (
               allCleaners.map((cleaner: any, i: number) => (
-                <GlassCard key={cleaner.id || i} style={{ marginBottom: 8 }}>
-                  <View style={s.memberRow}>
-                    <View style={[s.memberAvatar, { backgroundColor: cleaner.active !== false ? "rgba(0,145,255,0.1)" : Theme.destructiveBg }]}>
-                      <Text style={{ fontSize: 12, fontWeight: "600", color: cleaner.active !== false ? Theme.primary : Theme.destructive }}>
-                        {cleaner.name?.[0]?.toUpperCase() || "?"}
-                      </Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={s.memberName}>{cleaner.name}</Text>
-                      <Text style={s.sub}>{cleaner.phone || ""} {cleaner.employee_type ? `• ${cleaner.employee_type}` : ""}</Text>
-                    </View>
-                    <View style={{ alignItems: "flex-end", gap: 6 }}>
-                      <View style={[s.badge, { backgroundColor: cleaner.active !== false ? Theme.successBg : Theme.destructiveBg }]}>
-                        <Text style={[s.badgeText, { color: cleaner.active !== false ? Theme.success : Theme.destructive }]}>
-                          {cleaner.active !== false ? "Active" : "Inactive"}
+                <TouchableOpacity key={cleaner.id || i} activeOpacity={0.7} onPress={() => openEditCleaner(cleaner)}>
+                  <GlassCard style={{ marginBottom: 8 }}>
+                    <View style={s.memberRow}>
+                      <View style={[s.memberAvatar, { backgroundColor: cleaner.active !== false ? "rgba(0,145,255,0.1)" : Theme.destructiveBg }]}>
+                        <Text style={{ fontSize: 12, fontWeight: "600", color: cleaner.active !== false ? Theme.primary : Theme.destructive }}>
+                          {cleaner.name?.[0]?.toUpperCase() || "?"}
                         </Text>
                       </View>
-                      <TouchableOpacity
-                        onPress={() => cleaner.id && credentialsMutation.mutate(Number(cleaner.id))}
-                        style={s.credBtn}
-                      >
-                        <Text style={s.credBtnText}>Send Credentials</Text>
-                      </TouchableOpacity>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.memberName}>{cleaner.name}</Text>
+                        <Text style={s.sub}>{cleaner.phone || ""} {cleaner.employee_type ? `• ${cleaner.employee_type}` : ""}</Text>
+                      </View>
+                      <View style={{ alignItems: "flex-end", gap: 6 }}>
+                        <View style={[s.badge, { backgroundColor: cleaner.active !== false ? Theme.successBg : Theme.destructiveBg }]}>
+                          <Text style={[s.badgeText, { color: cleaner.active !== false ? Theme.success : Theme.destructive }]}>
+                            {cleaner.active !== false ? "Active" : "Inactive"}
+                          </Text>
+                        </View>
+                        <TouchableOpacity
+                          onPress={(e) => {
+                            e.stopPropagation?.();
+                            cleaner.id && credentialsMutation.mutate(Number(cleaner.id));
+                          }}
+                          style={s.credBtn}
+                        >
+                          <Text style={s.credBtnText}>Send Credentials</Text>
+                        </TouchableOpacity>
+                      </View>
                     </View>
-                  </View>
-                </GlassCard>
+                  </GlassCard>
+                </TouchableOpacity>
               ))
             )}
           </>
@@ -226,6 +418,125 @@ export default function TeamsScreen() {
           )
         )}
       </ScrollView>
+
+      {/* Create / Edit Cleaner Modal */}
+      <Modal
+        visible={cleanerModalVisible}
+        onClose={() => {
+          setCleanerModalVisible(false);
+          setEditingCleaner(null);
+          setCleanerForm(emptyCleanerForm);
+        }}
+        title={editingCleaner ? "Edit Cleaner" : "Create Cleaner"}
+      >
+        <ScrollView style={{ maxHeight: 420 }} keyboardShouldPersistTaps="handled">
+          <InputField
+            label="Name"
+            value={cleanerForm.name}
+            onChangeText={(v: string) => setCleanerForm((f) => ({ ...f, name: v }))}
+          />
+          <InputField
+            label="Phone"
+            value={cleanerForm.phone}
+            onChangeText={(v: string) => setCleanerForm((f) => ({ ...f, phone: v }))}
+          />
+          <InputField
+            label="Email"
+            value={cleanerForm.email}
+            onChangeText={(v: string) => setCleanerForm((f) => ({ ...f, email: v }))}
+          />
+
+          <Text style={s.fieldLabel}>Employee Type</Text>
+          <View style={s.typeRow}>
+            <TouchableOpacity
+              onPress={() => setCleanerForm((f) => ({ ...f, employee_type: "technician" }))}
+              style={[s.typeBtn, cleanerForm.employee_type === "technician" && s.typeBtnActive]}
+            >
+              <Text style={[s.typeBtnText, cleanerForm.employee_type === "technician" && s.typeBtnTextActive]}>
+                Technician
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setCleanerForm((f) => ({ ...f, employee_type: "salesman" }))}
+              style={[s.typeBtn, cleanerForm.employee_type === "salesman" && s.typeBtnActive]}
+            >
+              <Text style={[s.typeBtnText, cleanerForm.employee_type === "salesman" && s.typeBtnTextActive]}>
+                Salesman
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <ToggleField
+            label="Team Lead"
+            value={cleanerForm.is_team_lead}
+            onValueChange={(v: boolean) => setCleanerForm((f) => ({ ...f, is_team_lead: v }))}
+          />
+
+          <View style={{ marginTop: 16, gap: 10 }}>
+            <ActionButton
+              title={editingCleaner ? "Save Changes" : "Create Cleaner"}
+              onPress={handleSaveCleaner}
+              variant="primary"
+              loading={isSaving}
+            />
+            {editingCleaner && (
+              <ActionButton
+                title="Delete Cleaner"
+                onPress={handleDeleteCleaner}
+                variant="destructive"
+                loading={deleteCleanerMutation.isPending}
+              />
+            )}
+          </View>
+        </ScrollView>
+      </Modal>
+
+      {/* Create Team Modal */}
+      <Modal
+        visible={teamModalVisible}
+        onClose={() => {
+          setTeamModalVisible(false);
+          setTeamForm({ name: "", lead_id: "" });
+        }}
+        title="Create Team"
+      >
+        <InputField
+          label="Team Name"
+          value={teamForm.name}
+          onChangeText={(v: string) => setTeamForm((f) => ({ ...f, name: v }))}
+        />
+
+        <Text style={s.fieldLabel}>Team Lead</Text>
+        <ScrollView style={{ maxHeight: 180 }} nestedScrollEnabled>
+          {allCleaners.length === 0 ? (
+            <Text style={s.sub}>No cleaners available. Create cleaners first.</Text>
+          ) : (
+            allCleaners.map((c: any) => (
+              <TouchableOpacity
+                key={c.id}
+                onPress={() => setTeamForm((f) => ({ ...f, lead_id: String(c.id) }))}
+                style={[s.leadOption, String(c.id) === teamForm.lead_id && s.leadOptionActive]}
+              >
+                <Text style={[s.leadOptionText, String(c.id) === teamForm.lead_id && s.leadOptionTextActive]}>
+                  {c.name}
+                </Text>
+                {String(c.id) === teamForm.lead_id && (
+                  <Ionicons name="checkmark-circle" size={18} color={Theme.primary} />
+                )}
+              </TouchableOpacity>
+            ))
+          )}
+        </ScrollView>
+
+        <View style={{ marginTop: 16 }}>
+          <ActionButton
+            title="Create Team"
+            onPress={handleSaveTeam}
+            variant="primary"
+            loading={createTeamMutation.isPending}
+          />
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -250,4 +561,18 @@ const s = StyleSheet.create({
   sectionLabel: { fontSize: 13, fontWeight: "600", color: Theme.mutedForeground, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 },
   credBtn: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, borderWidth: 1, borderColor: Theme.border },
   credBtnText: { fontSize: 11, fontWeight: "500", color: Theme.mutedForeground },
+  manageActions: { flexDirection: "row", gap: 10, marginBottom: 14 },
+  manageBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: Theme.primary, paddingVertical: 12, borderRadius: 10 },
+  manageBtnText: { fontSize: 13, fontWeight: "600", color: "#fff" },
+  deleteTeamBtn: { padding: 8, borderRadius: 8, backgroundColor: Theme.destructiveBg },
+  fieldLabel: { fontSize: 13, fontWeight: "600", color: Theme.mutedForeground, marginTop: 12, marginBottom: 6 },
+  typeRow: { flexDirection: "row", gap: 8 },
+  typeBtn: { flex: 1, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: Theme.border, alignItems: "center" },
+  typeBtnActive: { borderColor: Theme.primary, backgroundColor: "rgba(0,145,255,0.1)" },
+  typeBtnText: { fontSize: 13, fontWeight: "500", color: Theme.mutedForeground },
+  typeBtnTextActive: { color: Theme.primary },
+  leadOption: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8, marginBottom: 4, borderWidth: 1, borderColor: Theme.border },
+  leadOptionActive: { borderColor: Theme.primary, backgroundColor: "rgba(0,145,255,0.1)" },
+  leadOptionText: { fontSize: 14, fontWeight: "500", color: Theme.foreground },
+  leadOptionTextActive: { color: Theme.primary },
 });

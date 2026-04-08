@@ -5,18 +5,32 @@ import {
   ScrollView,
   RefreshControl,
   StyleSheet,
+  TouchableOpacity,
+  Linking,
 } from "react-native";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/lib/auth";
-import { fetchMetrics, fetchJobs, fetchAttentionNeeded, fetchLeads } from "@/lib/api";
+import { fetchMetrics, fetchJobs, fetchAttentionNeeded, fetchLeads, apiFetch, completeCallTask } from "@/lib/api";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Theme } from "@/constants/colors";
 import { Job, AttentionItem, Lead } from "@/types";
 
+interface CallTask {
+  id: string;
+  customer_name?: string;
+  phone_number?: string;
+  source?: string;
+  category?: string;
+  briefing?: string;
+  completed?: boolean;
+}
+
 export default function OverviewScreen() {
   const { user } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
+  const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
+  const queryClient = useQueryClient();
 
   const metricsQuery = useQuery({
     queryKey: ["metrics", "today"],
@@ -41,6 +55,18 @@ export default function OverviewScreen() {
     queryFn: () => fetchLeads(),
   });
 
+  const callTasksQuery = useQuery({
+    queryKey: ["call-tasks"],
+    queryFn: () => apiFetch("/api/call-tasks"),
+  });
+
+  const completeTaskMutation = useMutation({
+    mutationFn: (taskId: string) => completeCallTask(taskId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["call-tasks"] });
+    },
+  });
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await Promise.all([
@@ -48,8 +74,21 @@ export default function OverviewScreen() {
       todaysJobsQuery.refetch(),
       attentionQuery.refetch(),
       leadsQuery.refetch(),
+      callTasksQuery.refetch(),
     ]);
     setRefreshing(false);
+  }, []);
+
+  const toggleExpanded = useCallback((taskId: string) => {
+    setExpandedTasks((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) {
+        next.delete(taskId);
+      } else {
+        next.add(taskId);
+      }
+      return next;
+    });
   }, []);
 
   const metricsRaw: any = metricsQuery.data ?? {};
@@ -58,6 +97,8 @@ export default function OverviewScreen() {
   const attentionItems: AttentionItem[] = (attentionQuery.data as any)?.items ?? [];
   const leadsRaw: any = leadsQuery.data ?? {};
   const leads: Lead[] = leadsRaw.data?.leads ?? leadsRaw.data ?? leadsRaw.leads ?? [];
+  const callTasksRaw: any = callTasksQuery.data ?? {};
+  const callTasks: CallTask[] = callTasksRaw.data?.tasks ?? callTasksRaw.data ?? callTasksRaw.tasks ?? [];
 
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long", month: "long", day: "numeric", year: "numeric",
@@ -132,6 +173,110 @@ export default function OverviewScreen() {
               </View>
             </View>
           ))
+        )}
+      </GlassCard>
+
+      {/* Call Checklist */}
+      <GlassCard>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Call Checklist</Text>
+          <View style={styles.pill}>
+            <Text style={styles.pillText}>
+              {callTasks.filter((t) => !t.completed).length}
+            </Text>
+          </View>
+        </View>
+        {callTasks.length === 0 ? (
+          <View style={styles.callEmptyState}>
+            <Ionicons name="call-outline" size={24} color={Theme.mutedForeground} />
+            <Text style={styles.emptyText}>No calls to make</Text>
+          </View>
+        ) : (
+          callTasks.map((task, i) => {
+            const isExpanded = expandedTasks.has(task.id);
+            const isCompleted = task.completed;
+            return (
+              <View
+                key={task.id || i}
+                style={[
+                  styles.callTaskItem,
+                  isCompleted && styles.callTaskCompleted,
+                ]}
+              >
+                <TouchableOpacity
+                  onPress={() => {
+                    if (!isCompleted) {
+                      completeTaskMutation.mutate(task.id);
+                    }
+                  }}
+                  style={styles.checkButton}
+                  activeOpacity={0.6}
+                >
+                  <Ionicons
+                    name={isCompleted ? "checkmark-circle" : "ellipse-outline"}
+                    size={24}
+                    color={isCompleted ? Theme.success : Theme.mutedForeground}
+                  />
+                </TouchableOpacity>
+
+                <View style={{ flex: 1 }}>
+                  <View style={styles.row}>
+                    <Text
+                      style={[
+                        styles.itemTitle,
+                        isCompleted && styles.callTaskTextDone,
+                      ]}
+                    >
+                      {task.customer_name || "Unknown"}
+                    </Text>
+                    {(task.source || task.category) && (
+                      <View style={styles.callCategoryPill}>
+                        <Text style={styles.callCategoryText}>
+                          {task.source || task.category}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+
+                  {task.phone_number ? (
+                    <TouchableOpacity
+                      onPress={() =>
+                        Linking.openURL(`tel:${task.phone_number}`)
+                      }
+                      activeOpacity={0.6}
+                    >
+                      <Text style={styles.callPhoneText}>
+                        {task.phone_number}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+
+                  {task.briefing ? (
+                    <TouchableOpacity
+                      onPress={() => toggleExpanded(task.id)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.briefingToggle}>
+                        <Ionicons
+                          name={isExpanded ? "chevron-up" : "chevron-down"}
+                          size={14}
+                          color={Theme.mutedForeground}
+                        />
+                        <Text style={styles.briefingToggleText}>
+                          {isExpanded ? "Hide briefing" : "Show briefing"}
+                        </Text>
+                      </View>
+                      {isExpanded && (
+                        <Text style={styles.briefingText}>
+                          {task.briefing}
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              </View>
+            );
+          })
         )}
       </GlassCard>
 
@@ -232,4 +377,26 @@ const styles = StyleSheet.create({
   sourceIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
   badgeText: { fontSize: 11, fontWeight: "500", textTransform: "capitalize" },
+  // Call Checklist styles
+  callTaskItem: {
+    flexDirection: "row", alignItems: "flex-start", gap: 10,
+    paddingVertical: 12, paddingHorizontal: 12, borderRadius: 10,
+    backgroundColor: Theme.glassListItem, borderWidth: 1, borderColor: "rgba(255,255,255,0.04)",
+  },
+  callTaskCompleted: { opacity: 0.45 },
+  callTaskTextDone: { textDecorationLine: "line-through" },
+  checkButton: { paddingTop: 1 },
+  callPhoneText: {
+    fontSize: 13, color: Theme.primary, marginTop: 2,
+    textDecorationLine: "underline",
+  },
+  callCategoryPill: {
+    paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8,
+    backgroundColor: "rgba(139,92,246,0.12)",
+  },
+  callCategoryText: { fontSize: 10, fontWeight: "600", color: "#a78bfa", textTransform: "capitalize" },
+  callEmptyState: { alignItems: "center", gap: 6, paddingVertical: 20 },
+  briefingToggle: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 6 },
+  briefingToggleText: { fontSize: 12, color: Theme.mutedForeground },
+  briefingText: { fontSize: 12, color: Theme.mutedForeground, marginTop: 6, lineHeight: 18 },
 });

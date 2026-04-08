@@ -1,18 +1,32 @@
 import React, { useState, useCallback } from "react";
-import { View, Text, FlatList, TouchableOpacity, RefreshControl, StyleSheet } from "react-native";
-import { useQuery } from "@tanstack/react-query";
+import { View, Text, FlatList, TouchableOpacity, RefreshControl, StyleSheet, Alert } from "react-native";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { fetchCustomers } from "@/lib/api";
+import { fetchCustomers, createCustomer } from "@/lib/api";
 import { Customer } from "@/types";
 import { SearchBar } from "@/components/ui/SearchBar";
 import { LoadingScreen } from "@/components/ui/LoadingScreen";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Modal } from "@/components/ui/Modal";
+import { InputField, ActionButton } from "@/components/ui/FormField";
 import { Theme } from "@/constants/colors";
+
+const emptyForm = {
+  first_name: "",
+  last_name: "",
+  phone_number: "",
+  email: "",
+  address: "",
+  notes: "",
+};
 
 export default function CustomersScreen() {
   const [search, setSearch] = useState("");
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [form, setForm] = useState(emptyForm);
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   const { data, isLoading, isError, error, refetch, isRefetching } = useQuery({
     queryKey: ["customers", search],
@@ -25,6 +39,30 @@ export default function CustomersScreen() {
   if (__DEV__ && data) {
     console.log("[Customers] data keys:", Object.keys(raw || {}), "count:", customers.length);
   }
+
+  const createMutation = useMutation({
+    mutationFn: (data: typeof form) => createCustomer(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["customers"] });
+      setShowCreateModal(false);
+      setForm(emptyForm);
+    },
+    onError: (err: Error) => {
+      Alert.alert("Failed to create customer", err.message);
+    },
+  });
+
+  const handleCreate = () => {
+    if (!form.first_name.trim() && !form.phone_number.trim()) {
+      Alert.alert("Required", "Please enter at least a first name or phone number.");
+      return;
+    }
+    createMutation.mutate(form);
+  };
+
+  const updateField = (key: keyof typeof form) => (value: string) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  };
 
   const renderCustomer = useCallback(
     ({ item }: { item: Customer }) => {
@@ -87,6 +125,31 @@ export default function CustomersScreen() {
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16, gap: 6 }}
         ListEmptyComponent={<EmptyState icon="people-outline" title="No customers found" description={search ? "Try a different search" : "Customers will appear here"} />}
       />
+
+      {/* Floating Action Button */}
+      <TouchableOpacity
+        style={s.fab}
+        activeOpacity={0.8}
+        onPress={() => {
+          setForm(emptyForm);
+          setShowCreateModal(true);
+        }}
+      >
+        <Ionicons name="add" size={28} color="#fff" />
+      </TouchableOpacity>
+
+      {/* Create Customer Modal */}
+      <Modal visible={showCreateModal} onClose={() => setShowCreateModal(false)} title="Create Customer">
+        <InputField label="First Name" value={form.first_name} onChangeText={updateField("first_name")} />
+        <InputField label="Last Name" value={form.last_name} onChangeText={updateField("last_name")} />
+        <InputField label="Phone Number" value={form.phone_number} onChangeText={updateField("phone_number")} />
+        <InputField label="Email" value={form.email} onChangeText={updateField("email")} />
+        <InputField label="Address" value={form.address} onChangeText={updateField("address")} />
+        <InputField label="Notes" value={form.notes} onChangeText={updateField("notes")} />
+        <View style={{ marginTop: 12 }}>
+          <ActionButton title="Create Customer" onPress={handleCreate} variant="primary" loading={createMutation.isPending} />
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -104,4 +167,20 @@ const s = StyleSheet.create({
   meta: { fontSize: 11, color: Theme.zinc600, marginTop: 1 },
   badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
   badgeText: { fontSize: 11, fontWeight: "500", textTransform: "capitalize" },
+  fab: {
+    position: "absolute",
+    bottom: 24,
+    right: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: Theme.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8,
+  },
 });
