@@ -78,16 +78,15 @@ export async function apiFetch<T = unknown>(
   const url = `${API_URL}${path}`;
 
   const headers: Record<string, string> = {
+    "Content-Type": "application/json",
     ...(options.headers as Record<string, string>),
   };
 
-  // Only set Content-Type for requests with a body
-  if (options.body || options.method === "POST" || options.method === "PUT" || options.method === "PATCH" || options.method === "DELETE") {
-    headers["Content-Type"] = "application/json";
-  }
-
   if (token) {
-    headers["Cookie"] = `winbros_session=${token}`;
+    // Use Authorization: Bearer header — the server middleware now
+    // reads this and injects it as a cookie for downstream handlers.
+    // This works reliably on iOS/Android where Cookie headers get stripped.
+    headers["Authorization"] = `Bearer ${token}`;
   }
 
   console.log(`[API] ${options.method || "GET"} ${path} (token: ${token ? "yes" : "no"})`);
