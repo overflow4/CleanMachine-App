@@ -24,7 +24,7 @@ export default function CustomerDetailScreen() {
   const [chargeAmount, setChargeAmount] = useState("");
   const queryClient = useQueryClient();
 
-  // Get customer from cached list
+  // Get customer from cached list — no /api/customers/:id endpoint exists
   const customersQuery = useQuery({ queryKey: ["customers", ""], queryFn: () => fetchCustomers() });
   const allCustomers: Customer[] = useMemo(() => {
     const raw = customersQuery.data as any;
@@ -32,6 +32,7 @@ export default function CustomerDetailScreen() {
   }, [customersQuery.data]);
   const customer = useMemo(() => allCustomers.find((c) => String(c.id) === String(id)), [allCustomers, id]);
 
+  // Queries
   const threadQuery = useQuery({ queryKey: ["inbox-thread", id], queryFn: () => fetchInboxThread(Number(id)), enabled: !!id && !!customer && activeTab === "messages", retry: 1 });
   const jobsQuery = useQuery({ queryKey: ["customer-jobs", id], queryFn: () => fetchJobs({ customer_id: id! }), enabled: !!id && activeTab === "jobs", retry: 1 });
   const quotesQuery = useQuery({ queryKey: ["customer-quotes", id], queryFn: () => fetchQuotes({ customer_id: id! }), enabled: !!id && activeTab === "quotes", retry: 1 });
@@ -55,17 +56,19 @@ export default function CustomerDetailScreen() {
     onError: (err: Error, _v, ctx) => { if (ctx?.previous) queryClient.setQueryData(["inbox-thread", id], ctx.previous); Alert.alert("Failed to send", err.message); },
   });
 
+  // Edit customer mutation
   const editMutation = useMutation({
     mutationFn: (data: Record<string, string>) => updateCustomer(String(id), data),
     onSuccess: () => { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); queryClient.invalidateQueries({ queryKey: ["customers"] }); setEditModalVisible(false); },
     onError: (err: Error) => Alert.alert("Error", err.message),
   });
 
+  // Derived data
   const rawMessages: Message[] = (threadQuery.data as any)?.messages ?? [];
   const messages = [...rawMessages].sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime());
   const jobs: Job[] = (jobsQuery.data as any)?.data ?? (jobsQuery.data as any)?.jobs ?? [];
   const quotes: Quote[] = (quotesQuery.data as any)?.quotes ?? (quotesQuery.data as any)?.data ?? [];
-  const memberships: any[] = (membershipsQuery.data as any)?.memberships ?? (membershipsQuery.data as any)?.data?.memberships ?? [];
+  const memberships: any[] = (membershipsQuery.data as any)?.memberships ?? (membershipsQuery.data as any)?.data?.memberships ?? (membershipsQuery.data as any)?.data ?? [];
 
   if (customersQuery.isLoading) return <LoadingScreen />;
   if (!customer) return <ErrorState message={`Customer #${id} not found`} onRetry={() => customersQuery.refetch()} />;
@@ -78,16 +81,19 @@ export default function CustomerDetailScreen() {
       last_name: customer.last_name || "",
       email: customer.email || "",
       address: customer.address || "",
+      notes: (customer as any).notes || "",
     });
     setEditModalVisible(true);
   };
 
+  // Payment handlers
   const handleDeposit = async () => {
     try {
       const res: any = await generatePaymentLink({ customerId: String(id), type: "deposit" });
       Alert.alert("Deposit Link", res.paymentUrl || res.data?.paymentUrl || "Link generated");
     } catch (err: any) { Alert.alert("Error", err.message); }
   };
+
   const handleInvoice = async () => {
     try {
       await sendInvoice({ customer_id: id });
@@ -95,6 +101,7 @@ export default function CustomerDetailScreen() {
       Alert.alert("Success", "Invoice sent");
     } catch (err: any) { Alert.alert("Error", err.message); }
   };
+
   const handleCharge = async () => {
     const amt = parseFloat(chargeAmount);
     if (!amt || amt <= 0) { Alert.alert("Invalid", "Enter a valid amount"); return; }
@@ -143,7 +150,7 @@ export default function CustomerDetailScreen() {
         ))}
       </ScrollView>
 
-      {/* Messages */}
+      {/* Messages Tab */}
       {activeTab === "messages" && (
         <View style={{ flex: 1 }}>
           <FlatList data={messages} inverted keyExtractor={(item, i) => item.id?.toString() ?? i.toString()} contentContainerStyle={{ padding: 16, gap: 6 }}
@@ -170,7 +177,7 @@ export default function CustomerDetailScreen() {
         </View>
       )}
 
-      {/* Jobs */}
+      {/* Jobs Tab */}
       {activeTab === "jobs" && (
         <ScrollView contentContainerStyle={{ padding: 16, gap: 8 }}>
           {jobs.length === 0 ? <Text style={st.emptyText}>{jobsQuery.isLoading ? "Loading..." : "No jobs"}</Text> : jobs.map((job, i) => (
@@ -187,7 +194,7 @@ export default function CustomerDetailScreen() {
         </ScrollView>
       )}
 
-      {/* Quotes */}
+      {/* Quotes Tab */}
       {activeTab === "quotes" && (
         <ScrollView contentContainerStyle={{ padding: 16, gap: 8 }}>
           {quotes.length === 0 ? <Text style={st.emptyText}>No quotes</Text> : quotes.map((q, i) => (
@@ -204,7 +211,7 @@ export default function CustomerDetailScreen() {
         </ScrollView>
       )}
 
-      {/* Payments */}
+      {/* Payments Tab */}
       {activeTab === "payments" && (
         <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
           <GlassCard>
@@ -239,8 +246,11 @@ export default function CustomerDetailScreen() {
               {memberships.map((m: any, i: number) => (
                 <View key={m.id || i} style={st.membershipRow}>
                   <View style={{ flex: 1 }}>
-                    <Text style={st.itemTitle}>{m.service_plan?.name || m.plan_name || "Plan"}</Text>
+                    <Text style={st.itemTitle}>{m.service_plan?.name || m.plan_name || m.name || "Plan"}</Text>
                     <Text style={st.meta}>Visits: {m.visits_used ?? 0}/{m.visits_total ?? 0}</Text>
+                    {(m.renewal_date || m.next_billing_date) && (
+                      <Text style={st.meta}>Renews: {new Date(m.renewal_date || m.next_billing_date).toLocaleDateString()}</Text>
+                    )}
                   </View>
                   <View style={[st.badge, { backgroundColor: m.status === "active" ? Theme.successBg : Theme.destructiveBg }]}>
                     <Text style={[st.badgeText, { color: m.status === "active" ? Theme.success : Theme.destructive }]}>{m.status}</Text>
@@ -252,9 +262,9 @@ export default function CustomerDetailScreen() {
         </ScrollView>
       )}
 
-      {/* Info */}
+      {/* Info Tab */}
       {activeTab === "info" && (
-        <ScrollView contentContainerStyle={{ padding: 16 }}>
+        <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
           <GlassCard>
             {([
               ["Phone", customer.phone_number], ["Email", customer.email], ["Address", customer.address],
@@ -271,17 +281,41 @@ export default function CustomerDetailScreen() {
               </View>
             ))}
           </GlassCard>
+
+          {/* Memberships in Info tab */}
+          <Text style={st.sectionTitle}>Memberships</Text>
+          {membershipsQuery.isLoading ? (
+            <Text style={st.emptyText}>Loading memberships...</Text>
+          ) : memberships.length === 0 ? (
+            <Text style={st.emptyText}>No active memberships</Text>
+          ) : (
+            memberships.map((m: any, i: number) => (
+              <GlassCard key={m.id || i}>
+                <View style={st.row}>
+                  <Text style={st.itemTitle}>{m.service_plan?.name || m.plan_name || m.name || "Membership"}</Text>
+                  <View style={[st.badge, { backgroundColor: m.status === "active" ? Theme.successBg : Theme.destructiveBg }]}>
+                    <Text style={[st.badgeText, { color: m.status === "active" ? Theme.success : Theme.destructive }]}>{m.status || "unknown"}</Text>
+                  </View>
+                </View>
+                <Text style={st.meta}>Visits: {m.visits_used ?? 0}/{m.visits_total ?? 0}</Text>
+                {(m.renewal_date || m.next_billing_date) && (
+                  <Text style={st.meta}>Renews: {new Date(m.renewal_date || m.next_billing_date).toLocaleDateString()}</Text>
+                )}
+              </GlassCard>
+            ))
+          )}
         </ScrollView>
       )}
 
-      {/* Edit Modal */}
+      {/* Edit Customer Modal */}
       <Modal visible={editModalVisible} onClose={() => setEditModalVisible(false)} title="Edit Customer">
-        <InputField label="First Name" value={editForm.first_name || ""} onChangeText={(v) => setEditForm(p => ({ ...p, first_name: v }))} />
-        <InputField label="Last Name" value={editForm.last_name || ""} onChangeText={(v) => setEditForm(p => ({ ...p, last_name: v }))} />
-        <InputField label="Email" value={editForm.email || ""} onChangeText={(v) => setEditForm(p => ({ ...p, email: v }))} />
-        <InputField label="Address" value={editForm.address || ""} onChangeText={(v) => setEditForm(p => ({ ...p, address: v }))} />
+        <InputField label="First Name" value={editForm.first_name || ""} onChangeText={(v) => setEditForm((p) => ({ ...p, first_name: v }))} />
+        <InputField label="Last Name" value={editForm.last_name || ""} onChangeText={(v) => setEditForm((p) => ({ ...p, last_name: v }))} />
+        <InputField label="Email" value={editForm.email || ""} onChangeText={(v) => setEditForm((p) => ({ ...p, email: v }))} />
+        <InputField label="Address" value={editForm.address || ""} onChangeText={(v) => setEditForm((p) => ({ ...p, address: v }))} />
+        <InputField label="Notes" value={editForm.notes || ""} onChangeText={(v) => setEditForm((p) => ({ ...p, notes: v }))} />
         <View style={{ marginTop: 8 }}>
-          <ActionButton title="Save Changes" onPress={() => editMutation.mutate(editForm)} loading={editMutation.isPending} />
+          <ActionButton title="Save Changes" onPress={() => editMutation.mutate(editForm)} variant="primary" loading={editMutation.isPending} />
         </View>
       </Modal>
     </KeyboardAvoidingView>
