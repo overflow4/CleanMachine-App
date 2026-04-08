@@ -53,7 +53,7 @@ export function Sidebar({ onClose }: Props) {
   const tenantSlug = tenant?.business_name_short?.toLowerCase() || "";
 
   const navigate = (route: string) => {
-    router.push(route as any);
+    router.replace(route as any);
     onClose?.();
   };
 

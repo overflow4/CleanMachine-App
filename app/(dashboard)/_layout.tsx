@@ -183,6 +183,7 @@ export default function DashboardLayout() {
                 headerShown: false,
                 contentStyle: { backgroundColor: Theme.background, paddingTop: 12 },
                 animation: "fade",
+                gestureEnabled: false, // disable iOS swipe-back — drawer handles left-edge swipes
               }}
             >
               <Stack.Screen name="overview" />
