@@ -1,10 +1,10 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useMemo } from "react";
 import { View, Text, ScrollView, TouchableOpacity, TextInput, FlatList, KeyboardAvoidingView, Platform, Alert, StyleSheet } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { fetchCustomer, fetchInboxThread, sendSms, fetchJobs, fetchQuotes } from "@/lib/api";
+import { fetchCustomers, fetchInboxThread, sendSms, fetchJobs, fetchQuotes } from "@/lib/api";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { LoadingScreen } from "@/components/ui/LoadingScreen";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -19,10 +19,43 @@ export default function CustomerDetailScreen() {
   const [newMessage, setNewMessage] = useState("");
   const queryClient = useQueryClient();
 
-  const customerQuery = useQuery({ queryKey: ["customer", id], queryFn: () => fetchCustomer(id!), enabled: !!id });
-  const threadQuery = useQuery({ queryKey: ["inbox-thread", id], queryFn: () => fetchInboxThread(Number(id)), enabled: !!id && activeTab === "messages" });
-  const jobsQuery = useQuery({ queryKey: ["customer-jobs", id], queryFn: () => fetchJobs({ customer_id: id! }), enabled: !!id && activeTab === "jobs" });
-  const quotesQuery = useQuery({ queryKey: ["customer-quotes", id], queryFn: () => fetchQuotes({ customer_id: id! }), enabled: !!id && activeTab === "quotes" });
+  // Get customer from the cached customer list — no /api/customers/:id endpoint exists
+  const customersQuery = useQuery({
+    queryKey: ["customers", ""],
+    queryFn: () => fetchCustomers(),
+  });
+
+  const allCustomers: Customer[] = useMemo(() => {
+    const raw = customersQuery.data as any;
+    return raw?.data?.customers ?? raw?.data ?? raw?.customers ?? [];
+  }, [customersQuery.data]);
+
+  const customer = useMemo(
+    () => allCustomers.find((c) => String(c.id) === String(id)),
+    [allCustomers, id]
+  );
+
+  // Inbox thread — use customer ID (the server accepts numeric customer_id)
+  const threadQuery = useQuery({
+    queryKey: ["inbox-thread", id],
+    queryFn: () => fetchInboxThread(Number(id)),
+    enabled: !!id && !!customer && activeTab === "messages",
+    retry: 1,
+  });
+
+  const jobsQuery = useQuery({
+    queryKey: ["customer-jobs", id],
+    queryFn: () => fetchJobs({ customer_id: id! }),
+    enabled: !!id && activeTab === "jobs",
+    retry: 1,
+  });
+
+  const quotesQuery = useQuery({
+    queryKey: ["customer-quotes", id],
+    queryFn: () => fetchQuotes({ customer_id: id! }),
+    enabled: !!id && activeTab === "quotes",
+    retry: 1,
+  });
 
   const sendMutation = useMutation({
     mutationFn: ({ to, message }: { to: string; message: string }) => sendSms(to, message),
@@ -30,15 +63,14 @@ export default function CustomerDetailScreen() {
     onError: (err: Error) => Alert.alert("Error", err.message),
   });
 
-  const customer: Customer | undefined = customerQuery.data as any;
   const messages: Message[] = (threadQuery.data as any)?.messages ?? [];
   const jobs: Job[] = (jobsQuery.data as any)?.data ?? (jobsQuery.data as any)?.jobs ?? [];
   const quotes: Quote[] = (quotesQuery.data as any)?.quotes ?? (quotesQuery.data as any)?.data ?? [];
 
-  if (customerQuery.isLoading) return <LoadingScreen />;
-  if (customerQuery.isError) return <ErrorState message="Failed to load customer" onRetry={() => customerQuery.refetch()} />;
+  if (customersQuery.isLoading) return <LoadingScreen />;
+  if (!customer) return <ErrorState message={`Customer #${id} not found`} onRetry={() => customersQuery.refetch()} />;
 
-  const customerName = [customer?.first_name, customer?.last_name].filter(Boolean).join(" ") || customer?.phone_number || "Customer";
+  const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(" ") || customer.phone_number || "Customer";
   const tabs: { key: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
     { key: "messages", label: "Messages", icon: "chatbubble-outline" },
     { key: "jobs", label: "Jobs", icon: "briefcase-outline" },
@@ -47,13 +79,13 @@ export default function CustomerDetailScreen() {
   ];
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={s.container} keyboardVerticalOffset={100}>
+    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={s.container} keyboardVerticalOffset={112}>
       {/* Header */}
       <View style={s.header}>
-        <View style={s.avatar}><Text style={s.avatarText}>{customerName[0]?.toUpperCase()}</Text></View>
+        <View style={s.avatar}><Text style={s.avatarText}>{(customerName[0] || "?").toUpperCase()}</Text></View>
         <View style={{ flex: 1 }}>
           <Text style={s.headerName}>{customerName}</Text>
-          <Text style={s.headerPhone}>{customer?.phone_number}</Text>
+          <Text style={s.headerPhone}>{customer.phone_number}</Text>
         </View>
       </View>
 
@@ -86,7 +118,11 @@ export default function CustomerDetailScreen() {
                 </View>
               );
             }}
-            ListEmptyComponent={<Text style={s.emptyText}>No messages yet</Text>}
+            ListEmptyComponent={
+              threadQuery.isLoading
+                ? <Text style={s.emptyText}>Loading messages...</Text>
+                : <Text style={s.emptyText}>No messages yet</Text>
+            }
           />
           <View style={s.inputBar}>
             <TextInput value={newMessage} onChangeText={setNewMessage} placeholder="Type a message..." placeholderTextColor={Theme.mutedForeground} multiline style={s.msgInput} />
@@ -100,7 +136,7 @@ export default function CustomerDetailScreen() {
       {/* Jobs Tab */}
       {activeTab === "jobs" && (
         <ScrollView contentContainerStyle={{ padding: 16, gap: 8 }}>
-          {jobs.length === 0 ? <Text style={s.emptyText}>No jobs found</Text> : jobs.map((job, i) => (
+          {jobs.length === 0 ? <Text style={s.emptyText}>{jobsQuery.isLoading ? "Loading..." : "No jobs found"}</Text> : jobs.map((job, i) => (
             <GlassCard key={job.id || i}>
               <View style={s.row}><Text style={s.itemTitle}>{job.service_type || "Service"}</Text>
                 <View style={[s.badge, { backgroundColor: job.status === "completed" ? Theme.successBg : "rgba(113,113,122,0.1)" }]}>
@@ -120,13 +156,12 @@ export default function CustomerDetailScreen() {
           {quotes.length === 0 ? <Text style={s.emptyText}>No quotes found</Text> : quotes.map((quote, i) => (
             <GlassCard key={quote.id || i}>
               <View style={s.row}>
-                <Text style={s.itemTitle}>Quote #{quote.id?.slice(-6)}</Text>
+                <Text style={s.itemTitle}>Quote #{quote.id?.toString().slice(-6)}</Text>
                 <View style={[s.badge, { backgroundColor: quote.status === "accepted" ? Theme.successBg : Theme.infoBg }]}>
                   <Text style={[s.badgeText, { color: quote.status === "accepted" ? Theme.success : Theme.info }]}>{quote.status}</Text>
                 </View>
               </View>
               <Text style={{ fontSize: 18, fontWeight: "700", color: Theme.foreground }}>${quote.total}</Text>
-              <Text style={s.meta}>{new Date(quote.created_at).toLocaleDateString()}</Text>
             </GlassCard>
           ))}
         </ScrollView>
@@ -136,15 +171,22 @@ export default function CustomerDetailScreen() {
       {activeTab === "info" && (
         <ScrollView contentContainerStyle={{ padding: 16 }}>
           <GlassCard>
-            {[
-              ["Phone", customer?.phone_number], ["Email", customer?.email], ["Address", customer?.address],
-              ["Bedrooms", customer?.bedrooms?.toString()], ["Bathrooms", customer?.bathrooms?.toString()],
-              ["Sq. Footage", customer?.square_footage?.toString()], ["Lead Source", customer?.lead_source],
-              ["Lifecycle", customer?.lifecycle_stage], ["SMS Opt-Out", customer?.sms_opt_out ? "Yes" : "No"],
-            ].filter(([_, v]) => v).map(([label, value]) => (
+            {([
+              ["Phone", customer.phone_number],
+              ["Email", customer.email],
+              ["Address", customer.address],
+              ["Bedrooms", customer.bedrooms?.toString()],
+              ["Bathrooms", customer.bathrooms?.toString()],
+              ["Sq. Footage", customer.square_footage?.toString() || (customer as any).sqft?.toString()],
+              ["Lead Source", customer.lead_source],
+              ["Lifecycle", customer.lifecycle_stage],
+              ["SMS Opt-Out", customer.sms_opt_out ? "Yes" : "No"],
+              ["Card on File", (customer as any).card_on_file_at ? "Yes" : "No"],
+              ["Created", customer.created_at ? new Date(customer.created_at).toLocaleDateString() : undefined],
+            ] as [string, string | undefined][]).filter(([_, v]) => v).map(([label, value]) => (
               <View key={label} style={s.infoRow}>
-                <Text style={s.infoLabel}>{label}</Text>
-                <Text style={s.infoValue}>{value}</Text>
+                <Text style={{ color: Theme.mutedForeground, fontSize: 14 }}>{label}</Text>
+                <Text style={{ color: Theme.foreground, fontWeight: "500", fontSize: 14 }}>{value}</Text>
               </View>
             ))}
           </GlassCard>
@@ -182,6 +224,4 @@ const s = StyleSheet.create({
   badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
   badgeText: { fontSize: 11, fontWeight: "500", textTransform: "capitalize" },
   infoRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" },
-  infoLabel: { color: Theme.mutedForeground, fontSize: 14 },
-  infoValue: { color: Theme.foreground, fontSize: 14, fontWeight: "500" },
 });
