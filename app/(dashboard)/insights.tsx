@@ -16,8 +16,19 @@ export default function InsightsScreen() {
     queryFn: fetchInsightsData,
   });
 
-  const cleanerPerformance: CleanerPerformance[] =
-    (data as any)?.cleanerPerformance ?? [];
+  // API returns camelCase fields: name, jobsCompleted, revenue (not snake_case)
+  const rawPerf: any[] = (data as any)?.cleanerPerformance ?? [];
+  // Filter out entries without a name and normalize fields
+  const cleanerPerformance = rawPerf
+    .filter((p: any) => p.name)
+    .map((p: any) => ({
+      cleaner_id: p.id || p.cleaner_id,
+      cleaner_name: p.name || p.cleaner_name,
+      jobs_completed: p.jobsCompleted ?? p.jobs_completed ?? 0,
+      revenue: p.revenue ?? 0,
+      avg_rating: p.avgRating ?? p.avg_rating ?? null,
+      upsell_rate: p.upsellRate ?? p.upsell_rate ?? null,
+    }));
   const messageAnalytics: any = (data as any)?.messageAnalytics ?? {};
 
   if (isLoading) return <LoadingScreen message="Loading insights..." />;

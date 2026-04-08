@@ -249,6 +249,8 @@ const styles = StyleSheet.create({
   nameText: {
     fontWeight: "500",
     color: Theme.foreground,
+    flex: 1,
+    marginRight: 8,
   },
   subText: {
     fontSize: 13,
