@@ -124,9 +124,14 @@ export default function DashboardLayout() {
     opacity: (translateX.value + DRAWER_WIDTH) / DRAWER_WIDTH * 0.6,
   }));
 
-  // Get current screen title
+  // Get current screen title — for dynamic routes like /customers/13756,
+  // use the parent segment name instead of the numeric ID
   const pathSegments = pathname.split("/").filter(Boolean);
-  const currentScreen = pathSegments[pathSegments.length - 1] || "overview";
+  const lastSegment = pathSegments[pathSegments.length - 1] || "overview";
+  const isNumericId = /^\d+$/.test(lastSegment);
+  const currentScreen = isNumericId
+    ? pathSegments[pathSegments.length - 2] || "overview"
+    : lastSegment;
   const title = screenTitles[currentScreen] || currentScreen;
 
   return (

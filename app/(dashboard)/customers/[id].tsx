@@ -99,7 +99,13 @@ export default function CustomerDetailScreen() {
     },
   });
 
-  const messages: Message[] = (threadQuery.data as any)?.messages ?? [];
+  // Sort messages newest-first for the inverted FlatList (newest at bottom)
+  const rawMessages: Message[] = (threadQuery.data as any)?.messages ?? [];
+  const messages = [...rawMessages].sort((a, b) => {
+    const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+    const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+    return tb - ta; // newest first (inverted list renders first item at bottom)
+  });
   const jobs: Job[] = (jobsQuery.data as any)?.data ?? (jobsQuery.data as any)?.jobs ?? [];
   const quotes: Quote[] = (quotesQuery.data as any)?.quotes ?? (quotesQuery.data as any)?.data ?? [];
 
