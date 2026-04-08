@@ -59,8 +59,44 @@ export default function CustomerDetailScreen() {
 
   const sendMutation = useMutation({
     mutationFn: ({ to, message }: { to: string; message: string }) => sendSms(to, message),
-    onSuccess: () => { setNewMessage(""); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); queryClient.invalidateQueries({ queryKey: ["inbox-thread", id] }); },
-    onError: (err: Error) => Alert.alert("Error", err.message),
+    // Optimistic update: insert the message instantly before server responds
+    onMutate: async ({ message }) => {
+      // Cancel any outgoing refetches so they don't overwrite our optimistic update
+      await queryClient.cancelQueries({ queryKey: ["inbox-thread", id] });
+      const previous = queryClient.getQueryData(["inbox-thread", id]);
+
+      // Optimistically add the new message to the cache
+      queryClient.setQueryData(["inbox-thread", id], (old: any) => {
+        const optimisticMsg: Message = {
+          id: `optimistic-${Date.now()}`,
+          customer_id: Number(id),
+          role: "assistant",
+          content: message,
+          timestamp: new Date().toISOString(),
+          direction: "outbound",
+          ai_generated: false,
+        };
+        return {
+          ...old,
+          messages: [optimisticMsg, ...(old?.messages ?? [])],
+        };
+      });
+
+      setNewMessage("");
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      return { previous };
+    },
+    onSuccess: () => {
+      // Sync with server data
+      queryClient.invalidateQueries({ queryKey: ["inbox-thread", id] });
+    },
+    onError: (err: Error, _vars, context) => {
+      // Rollback on failure
+      if (context?.previous) {
+        queryClient.setQueryData(["inbox-thread", id], context.previous);
+      }
+      Alert.alert("Failed to send", err.message);
+    },
   });
 
   const messages: Message[] = (threadQuery.data as any)?.messages ?? [];
