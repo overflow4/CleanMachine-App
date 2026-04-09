@@ -109,12 +109,13 @@ export default function AppEntryPage() {
       });
       setLoading(false);
 
-      // For crew members, open their portal URL in the browser
-      setTimeout(() => {
-        if (data.portalUrl) {
-          Linking.openURL(`${API_URL}${data.portalUrl}`);
-        }
-      }, 1200);
+      // Navigate to in-app crew portal instead of opening browser
+      if (data.portalUrl) {
+        const token = data.portalUrl.replace("/crew/", "");
+        setTimeout(() => {
+          router.replace(`/crew?token=${token}` as any);
+        }, 1200);
+      }
     } catch {
       setError("Connection error. Try again.");
       setLoading(false);
