@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, RefreshControl, StyleSheet, Linking,
 } from "react-native";
@@ -8,6 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { fetchCrewDashboard, toggleTimeOff, CrewJob } from "@/lib/crew-api";
+import { getCrewToken, setCrewToken, clearCrewToken } from "@/lib/crew-store";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { LoadingScreen } from "@/components/ui/LoadingScreen";
 import { Theme } from "@/constants/colors";
@@ -15,8 +16,22 @@ import { Theme } from "@/constants/colors";
 type ViewMode = "day" | "week";
 
 export default function CrewDashboardScreen() {
-  const { token } = useLocalSearchParams<{ token: string }>();
+  const params = useLocalSearchParams<{ token: string }>();
   const router = useRouter();
+  const [token, setToken] = useState<string | null>(params.token || null);
+
+  // Persist token and restore from storage
+  useEffect(() => {
+    if (params.token) {
+      setCrewToken(params.token);
+      setToken(params.token);
+    } else {
+      getCrewToken().then((stored) => {
+        if (stored) setToken(stored);
+        else router.replace("/"); // no token, go to login
+      });
+    }
+  }, [params.token]);
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const [viewMode, setViewMode] = useState<ViewMode>("day");
@@ -75,9 +90,9 @@ export default function CrewDashboardScreen() {
           <Text style={s.tenantName}>{tenant?.name || ""}</Text>
           <Text style={s.greeting}>{greeting()}, {firstName}</Text>
         </View>
-        <View style={s.avatarCircle}>
-          <Text style={s.avatarText}>{firstName[0]?.toUpperCase()}</Text>
-        </View>
+        <TouchableOpacity onPress={async () => { await clearCrewToken(); router.replace("/"); }} style={s.avatarCircle}>
+          <Ionicons name="log-out-outline" size={18} color={Theme.primaryLight} />
+        </TouchableOpacity>
       </View>
 
       {/* Toolbar */}
