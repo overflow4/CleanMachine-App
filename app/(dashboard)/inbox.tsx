@@ -29,12 +29,14 @@ export default function InboxScreen() {
   const convosQuery = useQuery({
     queryKey: ["inbox-conversations"],
     queryFn: fetchInboxConversations,
+    refetchInterval: 30000,
   });
 
   const threadQuery = useQuery({
     queryKey: ["inbox-thread", selectedConvo?.customer_id],
     queryFn: () => fetchInboxThread(selectedConvo!.customer_id),
     enabled: !!selectedConvo,
+    refetchInterval: 15000,
   });
 
   const conversations: Conversation[] = (convosQuery.data as any)?.conversations ?? [];
@@ -107,6 +109,96 @@ export default function InboxScreen() {
               <Ionicons name="checkmark-circle-outline" size={22} color={Theme.success} />
             </TouchableOpacity>
           </View>
+        </View>
+
+        {/* Analytics Badges */}
+        <View style={styles.analyticsBadges}>
+          {selectedConvo.priority && (
+            <View
+              style={[
+                styles.analyticsBadge,
+                {
+                  backgroundColor:
+                    selectedConvo.priority === "hot_lead"
+                      ? "rgba(212,9,36,0.15)"
+                      : selectedConvo.priority === "needs_attention"
+                      ? "rgba(245,158,11,0.15)"
+                      : selectedConvo.priority === "human_active"
+                      ? "rgba(59,130,246,0.15)"
+                      : "rgba(255,255,255,0.08)",
+                },
+              ]}
+            >
+              <Ionicons
+                name="flag"
+                size={12}
+                color={
+                  selectedConvo.priority === "hot_lead"
+                    ? Theme.destructive
+                    : selectedConvo.priority === "needs_attention"
+                    ? Theme.warning
+                    : selectedConvo.priority === "human_active"
+                    ? Theme.info
+                    : Theme.mutedForeground
+                }
+              />
+              <Text
+                style={[
+                  styles.analyticsBadgeText,
+                  {
+                    color:
+                      selectedConvo.priority === "hot_lead"
+                        ? Theme.destructive
+                        : selectedConvo.priority === "needs_attention"
+                        ? Theme.warning
+                        : selectedConvo.priority === "human_active"
+                        ? Theme.info
+                        : Theme.mutedForeground,
+                  },
+                ]}
+              >
+                {selectedConvo.priority.replace(/_/g, " ")}
+              </Text>
+            </View>
+          )}
+          <View
+            style={[
+              styles.analyticsBadge,
+              {
+                backgroundColor:
+                  selectedConvo.handler_type === "human"
+                    ? "rgba(245,158,11,0.15)"
+                    : "rgba(59,130,246,0.15)",
+              },
+            ]}
+          >
+            <Ionicons
+              name={selectedConvo.handler_type === "human" ? "person" : "sparkles"}
+              size={12}
+              color={selectedConvo.handler_type === "human" ? Theme.warning : Theme.info}
+            />
+            <Text
+              style={[
+                styles.analyticsBadgeText,
+                {
+                  color:
+                    selectedConvo.handler_type === "human" ? Theme.warning : Theme.info,
+                },
+              ]}
+            >
+              {selectedConvo.handler_type === "human" ? "Human" : "AI"} Handler
+            </Text>
+          </View>
+          {selectedConvo.avg_response_time != null && (
+            <View style={[styles.analyticsBadge, { backgroundColor: "rgba(69,186,80,0.15)" }]}>
+              <Ionicons name="timer-outline" size={12} color={Theme.success} />
+              <Text style={[styles.analyticsBadgeText, { color: Theme.success }]}>
+                ~{selectedConvo.avg_response_time < 60
+                  ? `${Math.round(selectedConvo.avg_response_time)}s`
+                  : `${Math.round(selectedConvo.avg_response_time / 60)}m`}
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* Messages */}
@@ -365,5 +457,28 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "700",
     color: "#ffffff",
+  },
+  analyticsBadges: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: Theme.border,
+    backgroundColor: Theme.card,
+  },
+  analyticsBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+  },
+  analyticsBadgeText: {
+    fontSize: 12,
+    fontWeight: "600",
+    textTransform: "capitalize",
   },
 });

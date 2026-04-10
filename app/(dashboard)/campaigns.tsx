@@ -2,9 +2,9 @@ import React, { useState } from "react";
 import {
   View, Text, ScrollView, RefreshControl, StyleSheet,
   TouchableOpacity, TextInput, Switch, ActivityIndicator, Alert,
-  Modal as RNModal,
+  Modal as RNModal, Platform,
 } from "react-native";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { apiFetch } from "@/lib/api";
@@ -73,6 +73,26 @@ export default function CampaignsScreen() {
   const [enrolling, setEnrolling] = useState(false);
   const [togglingSeq, setTogglingSeq] = useState<SequenceType | null>(null);
 
+  /* ── Create Campaign state ── */
+  const [createModalVisible, setCreateModalVisible] = useState(false);
+  const [newCampaign, setNewCampaign] = useState({
+    name: "",
+    type: "",
+    message_template: "",
+    start_date: "",
+    end_date: "",
+    segment: "",
+  });
+  const [creating, setCreating] = useState(false);
+
+  /* ── Settings toggles state ── */
+  const settingsQuery = useQuery({
+    queryKey: ["campaign-settings"],
+    queryFn: () => apiFetch("/api/actions/settings"),
+  });
+  const campaignSettings = (settingsQuery.data as any)?.settings ?? (settingsQuery.data as any)?.data ?? {};
+  const [togglingKey, setTogglingKey] = useState<string | null>(null);
+
   const getSequenceData = (type: SequenceType): RetargetingSequence => {
     const found = sequences.find((s) => s.type === type);
     return (
@@ -122,8 +142,70 @@ export default function CampaignsScreen() {
     }
   };
 
+  /* ── Create campaign ── */
+  const handleCreateCampaign = async () => {
+    if (!newCampaign.name.trim() || !newCampaign.type.trim()) return;
+    setCreating(true);
+    try {
+      await apiFetch("/api/campaigns", {
+        method: "POST",
+        body: JSON.stringify(newCampaign),
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert("Success", "Campaign created");
+      setCreateModalVisible(false);
+      setNewCampaign({ name: "", type: "", message_template: "", start_date: "", end_date: "", segment: "" });
+      queryClient.invalidateQueries({ queryKey: ["campaigns"] });
+    } catch (err: any) {
+      Alert.alert("Error", err.message);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  /* ── Delete campaign ── */
+  const handleDeleteCampaign = (campaign: Campaign) => {
+    Alert.alert(
+      "Delete Campaign",
+      `Are you sure you want to delete "${campaign.name}"?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await apiFetch(`/api/campaigns/${campaign.id}`, { method: "DELETE" });
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              queryClient.invalidateQueries({ queryKey: ["campaigns"] });
+            } catch (err: any) {
+              Alert.alert("Error", err.message);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  /* ── Toggle setting ── */
+  const handleToggleSetting = async (key: string, value: boolean) => {
+    setTogglingKey(key);
+    try {
+      await apiFetch("/api/actions/settings", {
+        method: "POST",
+        body: JSON.stringify({ [key]: value }),
+      });
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      queryClient.invalidateQueries({ queryKey: ["campaign-settings"] });
+    } catch (err: any) {
+      Alert.alert("Error", err.message);
+    } finally {
+      setTogglingKey(null);
+    }
+  };
+
   const onRefresh = async () => {
-    await Promise.all([refetch(), sequencesQuery.refetch()]);
+    await Promise.all([refetch(), sequencesQuery.refetch(), settingsQuery.refetch()]);
   };
 
   if (isLoading) return <LoadingScreen message="Loading campaigns..." />;
@@ -139,6 +221,57 @@ export default function CampaignsScreen() {
         />
       }
     >
+      {/* ── Settings Toggles ── */}
+      <View style={styles.section}>
+        <Text style={styles.sectionHeader}>Campaign Settings</Text>
+        <GlassCard style={{ marginBottom: 10 }}>
+          <View style={styles.settingToggleRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.settingLabel}>Seasonal Reminders</Text>
+              <Text style={styles.settingDesc}>Automatically send seasonal cleaning reminders</Text>
+            </View>
+            {togglingKey === "seasonal_reminders_enabled" ? (
+              <ActivityIndicator size="small" color={Theme.primary} />
+            ) : (
+              <Switch
+                value={campaignSettings.seasonal_reminders_enabled ?? false}
+                onValueChange={(v) => handleToggleSetting("seasonal_reminders_enabled", v)}
+                trackColor={{ false: Theme.border, true: "rgba(0,145,255,0.3)" }}
+                thumbColor={campaignSettings.seasonal_reminders_enabled ? Theme.primary : Theme.mutedForeground}
+              />
+            )}
+          </View>
+          <View style={[styles.settingToggleRow, { borderBottomWidth: 0 }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.settingLabel}>Frequency Nudge</Text>
+              <Text style={styles.settingDesc}>Nudge customers who haven't booked in a while</Text>
+            </View>
+            {togglingKey === "frequency_nudge_enabled" ? (
+              <ActivityIndicator size="small" color={Theme.primary} />
+            ) : (
+              <Switch
+                value={campaignSettings.frequency_nudge_enabled ?? false}
+                onValueChange={(v) => handleToggleSetting("frequency_nudge_enabled", v)}
+                trackColor={{ false: Theme.border, true: "rgba(0,145,255,0.3)" }}
+                thumbColor={campaignSettings.frequency_nudge_enabled ? Theme.primary : Theme.mutedForeground}
+              />
+            )}
+          </View>
+        </GlassCard>
+      </View>
+
+      {/* ── Create Campaign Button ── */}
+      <View style={styles.section}>
+        <TouchableOpacity
+          onPress={() => setCreateModalVisible(true)}
+          style={styles.createBtn}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="add-circle-outline" size={20} color="#fff" />
+          <Text style={styles.createBtnText}>Create Campaign</Text>
+        </TouchableOpacity>
+      </View>
+
       {/* ── Retargeting Sequences ── */}
       <View style={styles.section}>
         <Text style={styles.sectionHeader}>Retargeting Sequences</Text>
@@ -261,9 +394,18 @@ export default function CampaignsScreen() {
                   <Text style={styles.metricLabel}>Responses</Text>
                 </View>
               </View>
-              <Text style={styles.dateText}>
-                {new Date(campaign.created_at).toLocaleDateString()}
-              </Text>
+              <View style={styles.cardFooter}>
+                <Text style={styles.dateText}>
+                  {new Date(campaign.created_at).toLocaleDateString()}
+                </Text>
+                <TouchableOpacity
+                  onPress={() => handleDeleteCampaign(campaign)}
+                  style={styles.deleteBtn}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="trash-outline" size={16} color={Theme.destructive} />
+                </TouchableOpacity>
+              </View>
             </GlassCard>
           ))
         )}
@@ -316,6 +458,113 @@ export default function CampaignsScreen() {
               </TouchableOpacity>
             </View>
           </View>
+        </View>
+      </RNModal>
+
+      {/* ── Create Campaign Modal ── */}
+      <RNModal
+        visible={createModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCreateModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center", padding: 24 }}>
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>Create Campaign</Text>
+              <Text style={styles.modalDesc}>Set up a new marketing campaign.</Text>
+
+              <View style={styles.modalFieldGroup}>
+                <Text style={styles.modalFieldLabel}>Campaign Name</Text>
+                <TextInput
+                  value={newCampaign.name}
+                  onChangeText={(v) => setNewCampaign((p) => ({ ...p, name: v }))}
+                  placeholder="e.g. Spring Deep Clean"
+                  placeholderTextColor={Theme.mutedForeground}
+                  style={styles.modalInput}
+                />
+              </View>
+
+              <View style={styles.modalFieldGroup}>
+                <Text style={styles.modalFieldLabel}>Type</Text>
+                <TextInput
+                  value={newCampaign.type}
+                  onChangeText={(v) => setNewCampaign((p) => ({ ...p, type: v }))}
+                  placeholder="e.g. seasonal, promotional, retargeting"
+                  placeholderTextColor={Theme.mutedForeground}
+                  style={styles.modalInput}
+                />
+              </View>
+
+              <View style={styles.modalFieldGroup}>
+                <Text style={styles.modalFieldLabel}>Message Template</Text>
+                <TextInput
+                  value={newCampaign.message_template}
+                  onChangeText={(v) => setNewCampaign((p) => ({ ...p, message_template: v }))}
+                  placeholder="Hi {name}, ..."
+                  placeholderTextColor={Theme.mutedForeground}
+                  style={[styles.modalInput, { minHeight: 80, textAlignVertical: "top" }]}
+                  multiline
+                />
+              </View>
+
+              <View style={styles.modalFieldGroup}>
+                <Text style={styles.modalFieldLabel}>Start Date (YYYY-MM-DD)</Text>
+                <TextInput
+                  value={newCampaign.start_date}
+                  onChangeText={(v) => setNewCampaign((p) => ({ ...p, start_date: v }))}
+                  placeholder="2026-04-15"
+                  placeholderTextColor={Theme.mutedForeground}
+                  style={styles.modalInput}
+                />
+              </View>
+
+              <View style={styles.modalFieldGroup}>
+                <Text style={styles.modalFieldLabel}>End Date (YYYY-MM-DD)</Text>
+                <TextInput
+                  value={newCampaign.end_date}
+                  onChangeText={(v) => setNewCampaign((p) => ({ ...p, end_date: v }))}
+                  placeholder="2026-05-15"
+                  placeholderTextColor={Theme.mutedForeground}
+                  style={styles.modalInput}
+                />
+              </View>
+
+              <View style={styles.modalFieldGroup}>
+                <Text style={styles.modalFieldLabel}>Segment Targeting</Text>
+                <TextInput
+                  value={newCampaign.segment}
+                  onChangeText={(v) => setNewCampaign((p) => ({ ...p, segment: v }))}
+                  placeholder="e.g. lapsed, one_time, all"
+                  placeholderTextColor={Theme.mutedForeground}
+                  style={styles.modalInput}
+                />
+              </View>
+
+              <View style={styles.modalBtnRow}>
+                <TouchableOpacity
+                  onPress={() => setCreateModalVisible(false)}
+                  style={styles.modalCancelBtn}
+                >
+                  <Text style={styles.modalCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleCreateCampaign}
+                  disabled={creating || !newCampaign.name.trim() || !newCampaign.type.trim()}
+                  style={[
+                    styles.modalConfirmBtn,
+                    (creating || !newCampaign.name.trim() || !newCampaign.type.trim()) && { opacity: 0.5 },
+                  ]}
+                >
+                  {creating ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.modalConfirmText}>Create</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </ScrollView>
         </View>
       </RNModal>
     </ScrollView>
@@ -452,10 +701,63 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: Theme.mutedForeground,
   },
-  dateText: {
+  cardFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginTop: 8,
+  },
+  dateText: {
     fontSize: 11,
     color: Theme.zinc400,
+  },
+  deleteBtn: {
+    padding: 6,
+    borderRadius: 6,
+    backgroundColor: "rgba(212,9,36,0.1)",
+  },
+  /* ── Settings toggle styles ── */
+  settingToggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.06)",
+  },
+  settingLabel: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: Theme.foreground,
+  },
+  settingDesc: {
+    fontSize: 12,
+    color: Theme.mutedForeground,
+    marginTop: 2,
+  },
+  /* ── Create button ── */
+  createBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderRadius: 8,
+    backgroundColor: Theme.primary,
+    paddingVertical: 12,
+  },
+  createBtnText: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 15,
+  },
+  /* ── Modal field styles ── */
+  modalFieldGroup: {
+    marginBottom: 12,
+  },
+  modalFieldLabel: {
+    marginBottom: 4,
+    fontSize: 13,
+    fontWeight: "500",
+    color: Theme.mutedForeground,
   },
   /* ── Modal styles ── */
   modalOverlay: {
