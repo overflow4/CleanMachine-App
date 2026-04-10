@@ -238,6 +238,8 @@ export interface Conversation {
   last_message_at: string;
   unread_count?: number;
   priority?: "hot_lead" | "needs_attention" | "human_active" | "ai_handling";
+  handler_type?: "ai" | "human";
+  avg_response_time?: number;
   status?: string;
 }
 
