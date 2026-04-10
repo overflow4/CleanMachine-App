@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import {
   View, Text, ScrollView, RefreshControl, TouchableOpacity,
   Alert, StyleSheet, TextInput,
@@ -62,6 +62,7 @@ export default function TeamsScreen() {
     queryKey: ["team-messages"],
     queryFn: () => fetchTeamMessages(),
     enabled: activeTab === "messages",
+    refetchInterval: 15000,
   });
 
   const earningsQuery = useQuery({
@@ -155,6 +156,25 @@ export default function TeamsScreen() {
 
   const messages: any[] = (messagesQuery.data as any)?.messages ?? (messagesQuery.data as any)?.data ?? [];
   const earnings: any[] = (earningsQuery.data as any)?.earnings ?? (earningsQuery.data as any)?.data ?? [];
+
+  // Group messages by sender for bubble grouping
+  const groupedMessages = useMemo(() => {
+    const groups: { sender: string; isOutbound: boolean; messages: any[] }[] = [];
+    let currentGroup: { sender: string; isOutbound: boolean; messages: any[] } | null = null;
+
+    for (const msg of messages) {
+      const isOutbound = msg.is_mine || msg.direction === "outbound";
+      const sender = msg.sender_name || msg.cleaner_name || "Unknown";
+
+      if (!currentGroup || currentGroup.sender !== sender || currentGroup.isOutbound !== isOutbound) {
+        currentGroup = { sender, isOutbound, messages: [] };
+        groups.push(currentGroup);
+      }
+      currentGroup.messages.push(msg);
+    }
+
+    return groups;
+  }, [messages]);
 
   const onRefresh = useCallback(async () => {
     await Promise.all([
@@ -384,17 +404,56 @@ export default function TeamsScreen() {
           </>
         )}
 
-        {/* Messages Tab */}
+        {/* Messages Tab — Chat Bubbles */}
         {activeTab === "messages" && (
-          messages.length === 0 ? (
+          messagesQuery.isLoading ? (
+            <LoadingScreen message="Loading messages..." />
+          ) : messages.length === 0 ? (
             <EmptyState icon="chatbubbles-outline" title="No messages" />
           ) : (
-            messages.map((msg: any, i: number) => (
-              <GlassCard key={i} style={{ marginBottom: 8 }}>
-                <Text style={s.memberName}>{msg.sender_name || msg.cleaner_name || "Unknown"}</Text>
-                <Text style={{ fontSize: 13, color: Theme.foreground, opacity: 0.8, marginTop: 4 }}>{msg.content || msg.message || ""}</Text>
-                <Text style={s.sub}>{msg.created_at ? new Date(msg.created_at).toLocaleString() : ""}</Text>
-              </GlassCard>
+            groupedMessages.map((group, gi) => (
+              <View key={gi} style={{ marginBottom: 12 }}>
+                {/* Sender name above group */}
+                <Text style={[
+                  s.bubbleSender,
+                  { textAlign: group.isOutbound ? "right" : "left" },
+                ]}>
+                  {group.sender}
+                </Text>
+                {group.messages.map((msg: any, mi: number) => {
+                  const isOutbound = msg.is_mine || msg.direction === "outbound";
+                  return (
+                    <View
+                      key={mi}
+                      style={[
+                        s.bubbleRow,
+                        { justifyContent: isOutbound ? "flex-end" : "flex-start" },
+                      ]}
+                    >
+                      <View
+                        style={[
+                          s.bubble,
+                          isOutbound ? s.bubbleOutbound : s.bubbleInbound,
+                          mi === 0 && (isOutbound ? s.bubbleFirstOutbound : s.bubbleFirstInbound),
+                        ]}
+                      >
+                        <Text style={[
+                          s.bubbleText,
+                          { color: isOutbound ? "#fff" : Theme.foreground },
+                        ]}>
+                          {msg.content || msg.message || ""}
+                        </Text>
+                        <Text style={[
+                          s.bubbleTime,
+                          { color: isOutbound ? "rgba(255,255,255,0.6)" : Theme.mutedForeground },
+                        ]}>
+                          {msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
+                        </Text>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
             ))
           )
         )}
@@ -483,7 +542,7 @@ export default function TeamsScreen() {
               <ActionButton
                 title="Delete Cleaner"
                 onPress={handleDeleteCleaner}
-                variant="destructive"
+                variant="danger"
                 loading={deleteCleanerMutation.isPending}
               />
             )}
@@ -575,4 +634,14 @@ const s = StyleSheet.create({
   leadOptionActive: { borderColor: Theme.primary, backgroundColor: "rgba(0,145,255,0.1)" },
   leadOptionText: { fontSize: 14, fontWeight: "500", color: Theme.foreground },
   leadOptionTextActive: { color: Theme.primary },
+  // Chat bubble styles
+  bubbleSender: { fontSize: 11, fontWeight: "600", color: Theme.mutedForeground, marginBottom: 4, paddingHorizontal: 4 },
+  bubbleRow: { flexDirection: "row", marginBottom: 3 },
+  bubble: { maxWidth: "78%", paddingHorizontal: 14, paddingVertical: 9, borderRadius: 18 },
+  bubbleOutbound: { backgroundColor: Theme.primary, borderBottomRightRadius: 6 },
+  bubbleInbound: { backgroundColor: Theme.card, borderWidth: 1, borderColor: Theme.border, borderBottomLeftRadius: 6 },
+  bubbleFirstOutbound: { borderTopRightRadius: 18 },
+  bubbleFirstInbound: { borderTopLeftRadius: 18 },
+  bubbleText: { fontSize: 14, lineHeight: 20 },
+  bubbleTime: { fontSize: 10, marginTop: 4, textAlign: "right" },
 });

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { View, Text, ScrollView, RefreshControl, TouchableOpacity, StyleSheet } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
@@ -20,6 +20,16 @@ export default function EarningsScreen() {
 
   const earnings: any = data ?? {};
 
+  const breakdown: any[] = useMemo(
+    () => (earnings.breakdown && Array.isArray(earnings.breakdown) ? earnings.breakdown : []),
+    [earnings.breakdown]
+  );
+
+  const maxBreakdownAmount = useMemo(() => {
+    if (breakdown.length === 0) return 1;
+    return Math.max(...breakdown.map((item: any) => Number(item.amount ?? item.total ?? 0)), 1);
+  }, [breakdown]);
+
   if (isLoading) return <LoadingScreen message="Loading earnings..." />;
 
   const periods: { key: Period; label: string }[] = [
@@ -27,6 +37,10 @@ export default function EarningsScreen() {
     { key: "week", label: "This Week" },
     { key: "month", label: "This Month" },
   ];
+
+  const tipsValue = Number(earnings.tips ?? 0);
+  const upsellsValue = Number(earnings.upsells ?? 0);
+  const chartMax = Math.max(tipsValue, upsellsValue, 1);
 
   return (
     <ScrollView
@@ -80,11 +94,82 @@ export default function EarningsScreen() {
           />
         </View>
 
-        {/* Breakdown */}
-        {earnings.breakdown && Array.isArray(earnings.breakdown) && (
+        {/* Bar Chart — Tips vs Upsells */}
+        {(tipsValue > 0 || upsellsValue > 0) && (
+          <GlassCard style={styles.chartCard}>
+            <Text style={styles.sectionTitle}>Tips & Upsells</Text>
+
+            {/* Tips bar */}
+            <View style={styles.barRow}>
+              <Text style={styles.barLabel}>Tips</Text>
+              <View style={styles.barTrack}>
+                <View
+                  style={[
+                    styles.barFill,
+                    {
+                      width: `${Math.round((tipsValue / chartMax) * 100)}%`,
+                      backgroundColor: "#ec4899",
+                    },
+                  ]}
+                />
+              </View>
+              <Text style={styles.barValue}>${tipsValue}</Text>
+            </View>
+
+            {/* Upsells bar */}
+            <View style={styles.barRow}>
+              <Text style={styles.barLabel}>Upsells</Text>
+              <View style={styles.barTrack}>
+                <View
+                  style={[
+                    styles.barFill,
+                    {
+                      width: `${Math.round((upsellsValue / chartMax) * 100)}%`,
+                      backgroundColor: Theme.warning,
+                    },
+                  ]}
+                />
+              </View>
+              <Text style={styles.barValue}>${upsellsValue}</Text>
+            </View>
+          </GlassCard>
+        )}
+
+        {/* Breakdown with bar chart */}
+        {breakdown.length > 0 && (
           <View style={styles.breakdownSection}>
             <Text style={styles.sectionTitle}>Breakdown</Text>
-            {earnings.breakdown.map((item: any, i: number) => (
+
+            {/* Visual bar chart for breakdown items */}
+            <GlassCard style={styles.chartCard}>
+              {breakdown.map((item: any, i: number) => {
+                const amount = Number(item.amount ?? item.total ?? 0);
+                const pct = Math.round((amount / maxBreakdownAmount) * 100);
+                // Cycle through colors for variety
+                const colors = [Theme.primary, Theme.success, "#ec4899", Theme.warning, "#8b5cf6", "#06b6d4"];
+                const color = colors[i % colors.length];
+
+                return (
+                  <View key={i} style={styles.barRow}>
+                    <Text style={styles.barLabel} numberOfLines={1}>
+                      {item.label || item.name || `Item ${i + 1}`}
+                    </Text>
+                    <View style={styles.barTrack}>
+                      <View
+                        style={[
+                          styles.barFill,
+                          { width: `${Math.max(pct, 2)}%`, backgroundColor: color },
+                        ]}
+                      />
+                    </View>
+                    <Text style={styles.barValue}>${amount}</Text>
+                  </View>
+                );
+              })}
+            </GlassCard>
+
+            {/* Detail cards */}
+            {breakdown.map((item: any, i: number) => (
               <GlassCard key={i} style={styles.breakdownCard}>
                 <View style={styles.rowBetween}>
                   <View>
@@ -145,7 +230,7 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 16,
   },
-  breakdownSection: {
+  chartCard: {
     marginBottom: 16,
   },
   sectionTitle: {
@@ -153,6 +238,40 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: Theme.foreground,
     marginBottom: 12,
+  },
+  barRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 10,
+    gap: 8,
+  },
+  barLabel: {
+    width: 70,
+    fontSize: 12,
+    fontWeight: "500",
+    color: Theme.mutedForeground,
+  },
+  barTrack: {
+    flex: 1,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: Theme.muted,
+    overflow: "hidden",
+  },
+  barFill: {
+    height: "100%",
+    borderRadius: 10,
+    minWidth: 4,
+  },
+  barValue: {
+    width: 60,
+    fontSize: 13,
+    fontWeight: "600",
+    color: Theme.foreground,
+    textAlign: "right",
+  },
+  breakdownSection: {
+    marginBottom: 16,
   },
   breakdownCard: {
     marginBottom: 8,
