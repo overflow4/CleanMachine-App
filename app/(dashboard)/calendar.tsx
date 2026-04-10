@@ -12,7 +12,7 @@ import { Calendar, DateData } from "react-native-calendars";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { fetchJobs, completeJob, createJob, updateJob, deleteJob, assignCleaner } from "@/lib/api";
+import { fetchJobs, completeJob, createJob, updateJob, deleteJob, assignCleaner, recurringAction, generatePaymentLink, sendInvoice } from "@/lib/api";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -120,6 +120,42 @@ export default function CalendarScreen() {
     onError: (err: Error) => Alert.alert("Error", err.message),
   });
 
+  const recurringMutation = useMutation({
+    mutationFn: ({ action, jobId }: { action: string; jobId: string }) =>
+      recurringAction(action, { job_id: jobId }),
+    onSuccess: () => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      Alert.alert("Success", "Recurring job updated.");
+    },
+    onError: (err: Error) => Alert.alert("Error", err.message),
+  });
+
+  const paymentLinkMutation = useMutation({
+    mutationFn: (jobId: string) =>
+      generatePaymentLink({
+        customerId: editingJob?.customer_id || editingJob?.id || jobId,
+        type: "deposit",
+        jobId,
+        sendSms: true,
+      }),
+    onSuccess: () => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert("Success", "Deposit link generated and sent.");
+    },
+    onError: (err: Error) => Alert.alert("Error", err.message),
+  });
+
+  const invoiceMutation = useMutation({
+    mutationFn: (jobId: string) =>
+      sendInvoice({ job_id: jobId }),
+    onSuccess: () => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert("Success", "Invoice sent.");
+    },
+    onError: (err: Error) => Alert.alert("Error", err.message),
+  });
+
   // --- Handlers ---
 
   const handleCompleteJob = (job: Job) => {
@@ -205,6 +241,26 @@ export default function CalendarScreen() {
         },
       ]
     );
+  };
+
+  const handleRecurringAction = (action: string, label: string, needsConfirm: boolean) => {
+    if (!editingJob) return;
+    if (needsConfirm) {
+      Alert.alert(
+        `${label}?`,
+        `Are you sure you want to ${label.toLowerCase()} this recurring series? This cannot be undone.`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: label,
+            style: "destructive",
+            onPress: () => recurringMutation.mutate({ action, jobId: editingJob.id }),
+          },
+        ]
+      );
+    } else {
+      recurringMutation.mutate({ action, jobId: editingJob.id });
+    }
   };
 
   // --- Calendar marks ---
@@ -477,6 +533,104 @@ export default function CalendarScreen() {
           />
         )}
 
+        {/* Recurring Job Section */}
+        {editingJob && (editingJob as any).frequency && (
+          <View style={styles.recurringSection}>
+            <View style={styles.recurringSectionHeader}>
+              <Ionicons name="repeat-outline" size={18} color={Theme.primary} />
+              <Text style={styles.recurringSectionTitle}>Recurring Job</Text>
+              <Text style={styles.recurringFrequency}>{(editingJob as any).frequency}</Text>
+            </View>
+
+            <View style={styles.recurringActions}>
+              <TouchableOpacity
+                style={styles.recurringBtn}
+                onPress={() => handleRecurringAction("skip-next", "Skip Next", false)}
+                disabled={recurringMutation.isPending}
+              >
+                <Ionicons name="play-skip-forward-outline" size={16} color={Theme.foreground} />
+                <Text style={styles.recurringBtnText}>Skip Next</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.recurringBtn}
+                onPress={() => handleRecurringAction("pause", "Pause", false)}
+                disabled={recurringMutation.isPending}
+              >
+                <Ionicons name="pause-outline" size={16} color="#f59e0b" />
+                <Text style={styles.recurringBtnText}>Pause</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.recurringBtn}
+                onPress={() => handleRecurringAction("resume", "Resume", false)}
+                disabled={recurringMutation.isPending}
+              >
+                <Ionicons name="play-outline" size={16} color={Theme.success} />
+                <Text style={styles.recurringBtnText}>Resume</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.recurringBtn, styles.recurringBtnDanger]}
+                onPress={() => handleRecurringAction("cancel", "Cancel Series", true)}
+                disabled={recurringMutation.isPending}
+              >
+                <Ionicons name="close-circle-outline" size={16} color="#ef4444" />
+                <Text style={[styles.recurringBtnText, styles.recurringBtnTextDanger]}>Cancel Series</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.recurringBtn, styles.recurringBtnDanger]}
+                onPress={() => handleRecurringAction("delete-future", "Delete Future", true)}
+                disabled={recurringMutation.isPending}
+              >
+                <Ionicons name="trash-outline" size={16} color="#ef4444" />
+                <Text style={[styles.recurringBtnText, styles.recurringBtnTextDanger]}>Delete Future</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* Payment Section */}
+        {editingJob && (
+          <View style={styles.paymentSection}>
+            <View style={styles.paymentSectionHeader}>
+              <Ionicons name="card-outline" size={18} color={Theme.primary} />
+              <Text style={styles.paymentSectionTitle}>Payment</Text>
+            </View>
+
+            <View style={styles.paymentActions}>
+              <TouchableOpacity
+                style={styles.paymentBtn}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  paymentLinkMutation.mutate(editingJob.id);
+                }}
+                disabled={paymentLinkMutation.isPending}
+              >
+                <Ionicons name="link-outline" size={16} color={Theme.primary} />
+                <Text style={styles.paymentBtnText}>
+                  {paymentLinkMutation.isPending ? "Generating..." : "Generate Deposit Link"}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.paymentBtn}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  invoiceMutation.mutate(editingJob.id);
+                }}
+                disabled={invoiceMutation.isPending}
+              >
+                <Ionicons name="document-text-outline" size={16} color={Theme.primary} />
+                <Text style={styles.paymentBtnText}>
+                  {invoiceMutation.isPending ? "Sending..." : "Send Invoice"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         <View style={styles.modalActions}>
           <ActionButton
             title={editingJob ? "Save Changes" : "Create Job"}
@@ -616,5 +770,104 @@ const styles = StyleSheet.create({
   modalActions: {
     marginTop: 8,
     gap: 10,
+  },
+
+  // Recurring Job Section
+  recurringSection: {
+    marginTop: 16,
+    padding: 14,
+    borderRadius: 10,
+    backgroundColor: Theme.card,
+    borderWidth: 1,
+    borderColor: Theme.border,
+  },
+  recurringSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 12,
+  },
+  recurringSectionTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: Theme.foreground,
+    flex: 1,
+  },
+  recurringFrequency: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: Theme.primary,
+    backgroundColor: Theme.primaryMuted,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    textTransform: "capitalize",
+    overflow: "hidden",
+  },
+  recurringActions: {
+    gap: 8,
+  },
+  recurringBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: Theme.muted,
+    borderWidth: 1,
+    borderColor: Theme.border,
+  },
+  recurringBtnDanger: {
+    borderColor: "rgba(239,68,68,0.2)",
+    backgroundColor: "rgba(239,68,68,0.05)",
+  },
+  recurringBtnText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: Theme.foreground,
+  },
+  recurringBtnTextDanger: {
+    color: "#ef4444",
+  },
+
+  // Payment Section
+  paymentSection: {
+    marginTop: 16,
+    padding: 14,
+    borderRadius: 10,
+    backgroundColor: Theme.card,
+    borderWidth: 1,
+    borderColor: Theme.border,
+  },
+  paymentSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 12,
+  },
+  paymentSectionTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: Theme.foreground,
+  },
+  paymentActions: {
+    gap: 8,
+  },
+  paymentBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: Theme.primaryMuted,
+    borderWidth: 1,
+    borderColor: Theme.primary + "33",
+  },
+  paymentBtnText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: Theme.primary,
   },
 });
