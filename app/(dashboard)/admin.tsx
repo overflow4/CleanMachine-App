@@ -69,6 +69,11 @@ export default function AdminScreen() {
   const [credTesting, setCredTesting] = useState(false);
   const [credResult, setCredResult] = useState<{ success: boolean; message: string } | null>(null);
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message: string }> | null>(null);
+  const [providerTesting, setProviderTesting] = useState<string | null>(null);
+  const [registeringWebhooks, setRegisteringWebhooks] = useState(false);
+  const [webhookResult, setWebhookResult] = useState<{ success: boolean; message: string; details?: any } | null>(null);
+  const [cloningVapi, setCloningVapi] = useState(false);
+  const [cloneResult, setCloneResult] = useState<{ success: boolean; message: string } | null>(null);
 
   /* onboard tab state */
   const [onboardStep, setOnboardStep] = useState(1);
@@ -172,6 +177,89 @@ export default function AdminScreen() {
       setTestResults({ _error: { ok: false, message: err.message } });
     } finally {
       setCredTesting(false);
+    }
+  };
+
+  /* ── Per-provider test ── */
+  const testProvider = async (provider: string) => {
+    setProviderTesting(provider);
+    try {
+      const res: any = await apiFetch("/api/admin/test-connections", {
+        method: "POST",
+        body: JSON.stringify({ provider }),
+      });
+      const results = res?.data?.results ?? res?.results ?? {};
+      // Merge individual provider result into full test results
+      setTestResults((prev) => ({ ...(prev ?? {}), ...results }));
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (err: any) {
+      setTestResults((prev) => ({
+        ...(prev ?? {}),
+        [provider.toLowerCase()]: { ok: false, message: err.message },
+      }));
+    } finally {
+      setProviderTesting(null);
+    }
+  };
+
+  /* ── Register Webhooks ── */
+  const registerWebhooks = () => {
+    Alert.alert(
+      "Register Webhooks",
+      "This will register webhook endpoints for all services. Continue?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Register",
+          onPress: async () => {
+            setRegisteringWebhooks(true);
+            setWebhookResult(null);
+            try {
+              const res: any = await apiFetch("/api/admin/register-webhook", {
+                method: "POST",
+                body: JSON.stringify({ service: "all" }),
+              });
+              const details = res?.data ?? res ?? {};
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              setWebhookResult({
+                success: true,
+                message: "Webhooks registered successfully",
+                details,
+              });
+            } catch (err: any) {
+              setWebhookResult({ success: false, message: err.message });
+            } finally {
+              setRegisteringWebhooks(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  /* ── Clone VAPI Assistants ── */
+  const cloneVapiAssistants = async () => {
+    setCloningVapi(true);
+    setCloneResult(null);
+    try {
+      const res: any = await apiFetch("/api/admin/clone-vapi-assistants", {
+        method: "POST",
+        body: JSON.stringify({
+          vapi_api_key: onboardCreds.vapi_api_key,
+          flow_type: onboardData.flow_type,
+          slug: onboardData.slug,
+          business_name: onboardData.business_name,
+        }),
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setCloneResult({
+        success: true,
+        message: res?.message ?? "VAPI assistants cloned successfully",
+      });
+    } catch (err: any) {
+      setCloneResult({ success: false, message: err.message });
+    } finally {
+      setCloningVapi(false);
     }
   };
 
@@ -364,9 +452,39 @@ export default function AdminScreen() {
         {/* Credentials Tab */}
         {activeTab === "credentials" && (
           <View style={s.section}>
-            {CREDENTIAL_SECTIONS.map((section) => (
+            {CREDENTIAL_SECTIONS.map((section) => {
+              const providerKey = section.provider.toLowerCase();
+              const providerResult = testResults?.[providerKey];
+              return (
               <GlassCard key={section.provider} style={{ marginBottom: 12 }}>
-                <Text style={s.sectionTitle}>{section.provider}</Text>
+                <View style={s.providerHeader}>
+                  <Text style={s.sectionTitle}>{section.provider}</Text>
+                  <View style={s.providerHeaderRight}>
+                    {providerResult && (
+                      <Ionicons
+                        name={providerResult.ok ? "checkmark-circle" : "close-circle"}
+                        size={20}
+                        color={providerResult.ok ? Theme.success : Theme.destructive}
+                      />
+                    )}
+                    <TouchableOpacity
+                      onPress={() => testProvider(section.provider)}
+                      disabled={providerTesting !== null}
+                      style={s.providerTestBtn}
+                    >
+                      {providerTesting === section.provider ? (
+                        <ActivityIndicator size="small" color={Theme.primary} />
+                      ) : (
+                        <Text style={s.providerTestBtnText}>Test</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+                {providerResult && (
+                  <Text style={{ fontSize: 12, color: providerResult.ok ? Theme.success : Theme.destructive, marginBottom: 8 }}>
+                    {providerResult.message}
+                  </Text>
+                )}
                 {section.fields.map((field) => {
                   const revealed = revealedFields[field.key];
                   const currentVal = credentials[field.key] ?? "";
@@ -397,7 +515,8 @@ export default function AdminScreen() {
                   );
                 })}
               </GlassCard>
-            ))}
+              );
+            })}
 
             {credResult && (
               <View style={[s.resultBanner, { borderColor: credResult.success ? "rgba(69,186,80,0.3)" : "rgba(212,9,36,0.3)", backgroundColor: credResult.success ? "rgba(69,186,80,0.1)" : "rgba(212,9,36,0.1)" }]}>
@@ -439,6 +558,57 @@ export default function AdminScreen() {
                 )}
               </TouchableOpacity>
             </View>
+
+            {/* Register Webhooks */}
+            <TouchableOpacity
+              onPress={registerWebhooks}
+              disabled={registeringWebhooks}
+              style={[s.webhookBtn, registeringWebhooks && { opacity: 0.5 }]}
+            >
+              {registeringWebhooks ? (
+                <ActivityIndicator size="small" color={Theme.warning} />
+              ) : (
+                <Ionicons name="link-outline" size={18} color={Theme.warning} />
+              )}
+              <Text style={s.webhookBtnText}>Register Webhooks</Text>
+            </TouchableOpacity>
+
+            {webhookResult && (
+              <GlassCard style={{ marginTop: 8 }}>
+                <View style={s.testResultRow}>
+                  <Ionicons
+                    name={webhookResult.success ? "checkmark-circle" : "close-circle"}
+                    size={18}
+                    color={webhookResult.success ? Theme.success : Theme.destructive}
+                  />
+                  <Text style={[s.testResultText, { color: webhookResult.success ? Theme.success : Theme.destructive }]}>
+                    {webhookResult.message}
+                  </Text>
+                </View>
+                {webhookResult.details && (
+                  <View style={{ marginTop: 8 }}>
+                    {Object.entries(webhookResult.details).map(([service, info]: [string, any]) => {
+                      if (typeof info !== "object" || info === null) return null;
+                      return (
+                        <View key={service} style={s.webhookHealthRow}>
+                          <Text style={s.webhookServiceName}>{service}</Text>
+                          {info.registered_at && (
+                            <Text style={s.webhookHealthDetail}>
+                              Registered: {new Date(info.registered_at).toLocaleDateString()}
+                            </Text>
+                          )}
+                          {info.error_count != null && (
+                            <Text style={[s.webhookHealthDetail, info.error_count > 0 && { color: Theme.destructive }]}>
+                              Errors: {info.error_count}
+                            </Text>
+                          )}
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+              </GlassCard>
+            )}
           </View>
         )}
 
@@ -524,7 +694,31 @@ export default function AdminScreen() {
                     ))}
                   </View>
                 ))}
-                <View style={s.credBtnRow}>
+                {/* Clone VAPI Assistants */}
+                <TouchableOpacity
+                  onPress={cloneVapiAssistants}
+                  disabled={cloningVapi || !onboardCreds.vapi_api_key}
+                  style={[s.cloneVapiBtn, (!onboardCreds.vapi_api_key || cloningVapi) && { opacity: 0.5 }]}
+                >
+                  {cloningVapi ? (
+                    <ActivityIndicator size="small" color={Theme.info} />
+                  ) : (
+                    <Ionicons name="copy-outline" size={16} color={Theme.info} />
+                  )}
+                  <Text style={s.cloneVapiBtnText}>Clone VAPI Assistants</Text>
+                </TouchableOpacity>
+                {!onboardCreds.vapi_api_key && (
+                  <Text style={{ fontSize: 11, color: Theme.mutedForeground, marginTop: 4 }}>
+                    Enter a VAPI API Key above to enable cloning
+                  </Text>
+                )}
+                {cloneResult && (
+                  <View style={[s.resultBanner, { marginTop: 8, borderColor: cloneResult.success ? "rgba(69,186,80,0.3)" : "rgba(212,9,36,0.3)", backgroundColor: cloneResult.success ? "rgba(69,186,80,0.1)" : "rgba(212,9,36,0.1)" }]}>
+                    <Text style={{ color: cloneResult.success ? Theme.success : Theme.destructive, fontSize: 13 }}>{cloneResult.message}</Text>
+                  </View>
+                )}
+
+                <View style={[s.credBtnRow, { marginTop: 12 }]}>
                   <TouchableOpacity onPress={() => setOnboardStep(1)} style={[s.testBtn, { flex: 1 }]}>
                     <Text style={s.testBtnText}>Back</Text>
                   </TouchableOpacity>
@@ -665,4 +859,28 @@ const s = StyleSheet.create({
   flowChipActive: { borderColor: Theme.primary, backgroundColor: "rgba(0,145,255,0.15)" },
   flowChipText: { fontSize: 13, fontWeight: "500", color: Theme.mutedForeground },
   flowChipTextActive: { color: Theme.primary },
+  /* ── Provider header ── */
+  providerHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
+  providerHeaderRight: { flexDirection: "row", alignItems: "center", gap: 8 },
+  providerTestBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: Theme.primary, minWidth: 50, alignItems: "center" },
+  providerTestBtnText: { fontSize: 12, fontWeight: "600", color: Theme.primary },
+  /* ── Webhook ── */
+  webhookBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    marginTop: 12, borderRadius: 8, borderWidth: 1,
+    borderColor: "rgba(245,158,11,0.4)", backgroundColor: "rgba(245,158,11,0.1)",
+    paddingVertical: 12,
+  },
+  webhookBtnText: { fontSize: 14, fontWeight: "600", color: Theme.warning },
+  webhookHealthRow: { paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" },
+  webhookServiceName: { fontSize: 13, fontWeight: "600", color: Theme.foreground, textTransform: "capitalize" },
+  webhookHealthDetail: { fontSize: 12, color: Theme.mutedForeground, marginTop: 2 },
+  /* ── Clone VAPI ── */
+  cloneVapiBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    marginTop: 12, borderRadius: 8, borderWidth: 1,
+    borderColor: "rgba(59,130,246,0.4)", backgroundColor: "rgba(59,130,246,0.1)",
+    paddingVertical: 12,
+  },
+  cloneVapiBtnText: { fontSize: 14, fontWeight: "600", color: Theme.info },
 });
