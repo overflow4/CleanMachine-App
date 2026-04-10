@@ -1,10 +1,10 @@
 import React, { useState } from "react";
-import { View, Text, FlatList, RefreshControl, TouchableOpacity, Alert, StyleSheet, ScrollView } from "react-native";
+import { View, Text, FlatList, RefreshControl, TouchableOpacity, Alert, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { fetchQuotes, sendQuote, createQuote } from "@/lib/api";
-import { Quote } from "@/types";
+import { fetchQuotes, sendQuote, createQuote, fetchTeams, apiFetch } from "@/lib/api";
+import { Quote, Cleaner } from "@/types";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -31,6 +31,12 @@ interface QuoteForm {
   notes: string;
 }
 
+interface PreConfirmEntry {
+  cleaner_id: string;
+  cleaner_name: string;
+  status: "pending" | "confirmed" | "declined";
+}
+
 const emptyLineItem: LineItem = { description: "", quantity: "1", unit_price: "" };
 
 const emptyQuoteForm: QuoteForm = {
@@ -46,6 +52,11 @@ export default function QuotesScreen() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [quoteForm, setQuoteForm] = useState<QuoteForm>(emptyQuoteForm);
+  const [preConfirmModalVisible, setPreConfirmModalVisible] = useState(false);
+  const [preConfirmQuote, setPreConfirmQuote] = useState<Quote | null>(null);
+  const [selectedCleanerIds, setSelectedCleanerIds] = useState<string[]>([]);
+  const [cleanerPay, setCleanerPay] = useState("");
+  const [smsPromptQuoteId, setSmsPromptQuoteId] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const { data, isLoading, refetch, isRefetching } = useQuery({
@@ -54,6 +65,18 @@ export default function QuotesScreen() {
   });
 
   const quotes: Quote[] = (data as any)?.quotes ?? (data as any)?.data ?? [];
+
+  // Fetch cleaners for the pre-confirm modal
+  const teamsQuery = useQuery({
+    queryKey: ["teams"],
+    queryFn: fetchTeams,
+    enabled: preConfirmModalVisible,
+  });
+
+  const cleaners: Cleaner[] = (teamsQuery.data as any)?.data?.cleaners
+    ?? (teamsQuery.data as any)?.cleaners
+    ?? (teamsQuery.data as any)?.data
+    ?? [];
 
   const sendMutation = useMutation({
     mutationFn: (quoteId: string) => sendQuote(quoteId),
@@ -66,15 +89,56 @@ export default function QuotesScreen() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (data: any) => createQuote(data),
-    onSuccess: () => {
+    mutationFn: (payload: any) => createQuote(payload),
+    onSuccess: (result: any) => {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       queryClient.invalidateQueries({ queryKey: ["quotes"] });
       setCreateModalVisible(false);
       setQuoteForm(emptyQuoteForm);
-      Alert.alert("Success", "Quote created");
+      const newQuoteId = result?.data?.id ?? result?.id ?? result?.quote?.id;
+      if (newQuoteId) {
+        setSmsPromptQuoteId(newQuoteId);
+      } else {
+        Alert.alert("Success", "Quote created");
+      }
     },
     onError: (err: Error) => Alert.alert("Error", err.message),
+  });
+
+  const preConfirmMutation = useMutation({
+    mutationFn: (payload: { quote_id: string; cleaner_ids: string[]; cleaner_pay: number }) =>
+      apiFetch("/api/actions/quotes/preconfirm", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: () => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      queryClient.invalidateQueries({ queryKey: ["quotes"] });
+      setPreConfirmModalVisible(false);
+      setPreConfirmQuote(null);
+      setSelectedCleanerIds([]);
+      setCleanerPay("");
+      Alert.alert("Success", "Pre-confirmation sent to cleaners");
+    },
+    onError: (err: Error) => Alert.alert("Error", err.message),
+  });
+
+  const smsAfterCreateMutation = useMutation({
+    mutationFn: (quoteId: string) =>
+      apiFetch("/api/actions/quotes/send", {
+        method: "POST",
+        body: JSON.stringify({ quote_id: quoteId }),
+      }),
+    onSuccess: () => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setSmsPromptQuoteId(null);
+      queryClient.invalidateQueries({ queryKey: ["quotes"] });
+      Alert.alert("Success", "Quote SMS sent to customer");
+    },
+    onError: (err: Error) => {
+      setSmsPromptQuoteId(null);
+      Alert.alert("Error", err.message);
+    },
   });
 
   const calcTotal = (): number => {
@@ -132,6 +196,53 @@ export default function QuotesScreen() {
     createMutation.mutate(payload);
   };
 
+  const toggleCleanerSelection = (id: string) => {
+    setSelectedCleanerIds((prev) =>
+      prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]
+    );
+  };
+
+  const handlePreConfirmSubmit = () => {
+    if (!preConfirmQuote) return;
+    if (selectedCleanerIds.length === 0) {
+      Alert.alert("Validation", "Select at least one cleaner");
+      return;
+    }
+    const pay = parseFloat(cleanerPay);
+    if (!pay || pay <= 0) {
+      Alert.alert("Validation", "Enter a valid cleaner pay amount");
+      return;
+    }
+    preConfirmMutation.mutate({
+      quote_id: preConfirmQuote.id,
+      cleaner_ids: selectedCleanerIds,
+      cleaner_pay: pay,
+    });
+  };
+
+  const openPreConfirmModal = (quote: Quote) => {
+    setPreConfirmQuote(quote);
+    setSelectedCleanerIds([]);
+    setCleanerPay("");
+    setPreConfirmModalVisible(true);
+  };
+
+  const getPreConfirmStatusColor = (status: string) => {
+    switch (status) {
+      case "confirmed": return Theme.success;
+      case "declined": return Theme.destructive;
+      default: return Theme.warning ?? "#f59e0b";
+    }
+  };
+
+  const getPreConfirmStatusIcon = (status: string): React.ComponentProps<typeof Ionicons>["name"] => {
+    switch (status) {
+      case "confirmed": return "checkmark-circle";
+      case "declined": return "close-circle";
+      default: return "time";
+    }
+  };
+
   if (isLoading) return <LoadingScreen message="Loading quotes..." />;
 
   return (
@@ -169,51 +280,86 @@ export default function QuotesScreen() {
         keyExtractor={(item) => item.id}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} tintColor={Theme.primary} />}
         contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 80 }}
-        renderItem={({ item }) => (
-          <GlassCard style={styles.card}>
-            <View style={styles.rowBetween}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.nameText}>
-                  {item.customer_name || `Quote #${item.id.slice(-6)}`}
-                </Text>
-                <Text style={styles.subText}>{item.customer_phone || ""}</Text>
-              </View>
-              <Badge
-                label={item.status}
-                variant={
-                  item.status === "accepted" ? "success" :
-                  item.status === "declined" || item.status === "expired" ? "error" :
-                  item.status === "sent" || item.status === "viewed" ? "info" : "default"
-                }
-              />
-            </View>
-            <Text style={styles.totalText}>${item.total}</Text>
-            {item.line_items && item.line_items.length > 0 && (
-              <View style={{ marginTop: 8 }}>
-                {item.line_items.map((li, i) => (
-                  <Text key={i} style={styles.lineItem}>
-                    {"\u2022"} {li.description} ({li.quantity}x ${li.unit_price})
+        renderItem={({ item }) => {
+          const preConfirms: PreConfirmEntry[] = (item as any).pre_confirms ?? (item as any).preconfirms ?? [];
+          return (
+            <GlassCard style={styles.card}>
+              <View style={styles.rowBetween}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.nameText}>
+                    {item.customer_name || `Quote #${item.id.slice(-6)}`}
                   </Text>
-                ))}
-              </View>
-            )}
-            <Text style={styles.dateText}>
-              Created {new Date(item.created_at).toLocaleDateString()}
-              {item.valid_until && ` \u2022 Valid until ${new Date(item.valid_until).toLocaleDateString()}`}
-            </Text>
-            {(item.status === "draft" || item.status === "sent") && (
-              <View style={{ marginTop: 8 }}>
-                <Button
-                  title={item.status === "draft" ? "Send Quote" : "Resend"}
-                  variant="outline"
-                  size="sm"
-                  onPress={() => sendMutation.mutate(item.id)}
-                  loading={sendMutation.isPending}
+                  <Text style={styles.subText}>{item.customer_phone || ""}</Text>
+                </View>
+                <Badge
+                  label={item.status}
+                  variant={
+                    item.status === "accepted" ? "success" :
+                    item.status === "declined" || item.status === "expired" ? "error" :
+                    item.status === "sent" || item.status === "viewed" ? "info" : "default"
+                  }
                 />
               </View>
-            )}
-          </GlassCard>
-        )}
+              <Text style={styles.totalText}>${item.total}</Text>
+              {item.line_items && item.line_items.length > 0 && (
+                <View style={{ marginTop: 8 }}>
+                  {item.line_items.map((li, i) => (
+                    <Text key={i} style={styles.lineItem}>
+                      {"\u2022"} {li.description} ({li.quantity}x ${li.unit_price})
+                    </Text>
+                  ))}
+                </View>
+              )}
+              <Text style={styles.dateText}>
+                Created {new Date(item.created_at).toLocaleDateString()}
+                {item.valid_until && ` \u2022 Valid until ${new Date(item.valid_until).toLocaleDateString()}`}
+              </Text>
+
+              {/* Pre-confirm status tracking */}
+              {preConfirms.length > 0 && (
+                <View style={styles.preConfirmSection}>
+                  <Text style={styles.preConfirmHeader}>Cleaner Pre-Confirmations</Text>
+                  {preConfirms.map((pc, i) => (
+                    <View key={i} style={styles.preConfirmRow}>
+                      <Ionicons
+                        name={getPreConfirmStatusIcon(pc.status)}
+                        size={16}
+                        color={getPreConfirmStatusColor(pc.status)}
+                      />
+                      <Text style={styles.preConfirmName}>{pc.cleaner_name || `Cleaner ${pc.cleaner_id}`}</Text>
+                      <Text style={[styles.preConfirmStatus, { color: getPreConfirmStatusColor(pc.status) }]}>
+                        {pc.status.charAt(0).toUpperCase() + pc.status.slice(1)}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {/* Action buttons row */}
+              <View style={styles.actionRow}>
+                {(item.status === "draft" || item.status === "sent") && (
+                  <View style={{ flex: 1, marginRight: 6 }}>
+                    <Button
+                      title={item.status === "draft" ? "Send Quote" : "Resend"}
+                      variant="outline"
+                      size="sm"
+                      onPress={() => sendMutation.mutate(item.id)}
+                      loading={sendMutation.isPending}
+                    />
+                  </View>
+                )}
+                <View style={{ flex: 1, marginLeft: item.status === "draft" || item.status === "sent" ? 6 : 0 }}>
+                  <Button
+                    title="Pre-confirm"
+                    variant="outline"
+                    size="sm"
+                    onPress={() => openPreConfirmModal(item)}
+                  />
+                </View>
+              </View>
+            </GlassCard>
+          );
+        }}
         ListEmptyComponent={
           <EmptyState icon="document-text-outline" title="No quotes" description="Quotes will appear here" />
         }
@@ -325,6 +471,135 @@ export default function QuotesScreen() {
           </View>
         </ScrollView>
       </Modal>
+
+      {/* SMS Prompt after Quote Creation */}
+      <Modal
+        visible={!!smsPromptQuoteId}
+        onClose={() => setSmsPromptQuoteId(null)}
+        title="Quote Created"
+      >
+        <View style={styles.smsPromptContent}>
+          <Ionicons name="checkmark-circle" size={48} color={Theme.success} style={{ alignSelf: "center" }} />
+          <Text style={styles.smsPromptTitle}>Quote created successfully</Text>
+          <Text style={styles.smsPromptDesc}>
+            Would you like to SMS the quote link to the customer?
+          </Text>
+          <View style={{ marginTop: 16, gap: 10 }}>
+            <ActionButton
+              title="Send SMS to Customer"
+              onPress={() => {
+                if (smsPromptQuoteId) {
+                  smsAfterCreateMutation.mutate(smsPromptQuoteId);
+                }
+              }}
+              variant="primary"
+              loading={smsAfterCreateMutation.isPending}
+            />
+            <ActionButton
+              title="Skip"
+              onPress={() => setSmsPromptQuoteId(null)}
+              variant="outline"
+              disabled={smsAfterCreateMutation.isPending}
+            />
+          </View>
+        </View>
+      </Modal>
+
+      {/* Pre-confirm with Cleaners Modal */}
+      <Modal
+        visible={preConfirmModalVisible}
+        onClose={() => {
+          setPreConfirmModalVisible(false);
+          setPreConfirmQuote(null);
+          setSelectedCleanerIds([]);
+          setCleanerPay("");
+        }}
+        title="Pre-confirm with Cleaners"
+      >
+        {preConfirmQuote && (
+          <View>
+            <GlassCard style={styles.preConfirmQuoteSummary}>
+              <Text style={styles.preConfirmQuoteLabel}>
+                {preConfirmQuote.customer_name || `Quote #${preConfirmQuote.id.slice(-6)}`}
+              </Text>
+              <Text style={styles.preConfirmQuoteTotal}>${preConfirmQuote.total}</Text>
+            </GlassCard>
+
+            <Text style={[styles.sectionLabel, { marginTop: 16, marginBottom: 8 }]}>
+              Select Cleaners
+            </Text>
+
+            {teamsQuery.isLoading ? (
+              <View style={styles.loadingCleaners}>
+                <ActivityIndicator size="small" color={Theme.primary} />
+                <Text style={styles.loadingCleanersText}>Loading cleaners...</Text>
+              </View>
+            ) : cleaners.length === 0 ? (
+              <Text style={styles.noCleanersText}>No cleaners available</Text>
+            ) : (
+              <View style={styles.cleanersList}>
+                {cleaners.map((cleaner) => {
+                  const id = String(cleaner.id);
+                  const isSelected = selectedCleanerIds.includes(id);
+                  return (
+                    <TouchableOpacity
+                      key={id}
+                      style={[
+                        styles.cleanerRow,
+                        isSelected && styles.cleanerRowSelected,
+                      ]}
+                      onPress={() => toggleCleanerSelection(id)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={[styles.checkbox, isSelected && styles.checkboxChecked]}>
+                        {isSelected && <Ionicons name="checkmark" size={14} color="#fff" />}
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.cleanerName}>{cleaner.name}</Text>
+                        {cleaner.phone && (
+                          <Text style={styles.cleanerPhone}>{cleaner.phone}</Text>
+                        )}
+                      </View>
+                      {cleaner.is_team_lead && (
+                        <Badge label="Lead" variant="info" />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+
+            <View style={{ marginTop: 16 }}>
+              <InputField
+                label="Cleaner Pay ($)"
+                value={cleanerPay}
+                onChangeText={setCleanerPay}
+                keyboardType="decimal-pad"
+                placeholder="e.g. 120.00"
+              />
+            </View>
+
+            {selectedCleanerIds.length > 0 && cleanerPay && (
+              <View style={styles.preConfirmSummaryRow}>
+                <Text style={styles.preConfirmSummaryText}>
+                  {selectedCleanerIds.length} cleaner{selectedCleanerIds.length > 1 ? "s" : ""} selected
+                  {" \u2022 "}${parseFloat(cleanerPay || "0").toFixed(2)} each
+                </Text>
+              </View>
+            )}
+
+            <View style={{ marginTop: 16, marginBottom: 8 }}>
+              <ActionButton
+                title={`Send Pre-confirmation${selectedCleanerIds.length > 0 ? ` (${selectedCleanerIds.length})` : ""}`}
+                onPress={handlePreConfirmSubmit}
+                variant="primary"
+                loading={preConfirmMutation.isPending}
+                disabled={selectedCleanerIds.length === 0 || !cleanerPay}
+              />
+            </View>
+          </View>
+        )}
+      </Modal>
     </View>
   );
 }
@@ -394,6 +669,10 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 11,
     color: Theme.zinc400,
+  },
+  actionRow: {
+    flexDirection: "row",
+    marginTop: 10,
   },
   fab: {
     position: "absolute",
@@ -475,5 +754,141 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: "700",
     color: Theme.success,
+  },
+  // Pre-confirm status on quote card
+  preConfirmSection: {
+    marginTop: 10,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: Theme.border,
+  },
+  preConfirmHeader: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: Theme.mutedForeground,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  preConfirmRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 3,
+  },
+  preConfirmName: {
+    flex: 1,
+    fontSize: 13,
+    color: Theme.foreground,
+  },
+  preConfirmStatus: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  // Pre-confirm modal styles
+  preConfirmQuoteSummary: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  preConfirmQuoteLabel: {
+    fontSize: 15,
+    fontWeight: "500",
+    color: Theme.foreground,
+    flex: 1,
+  },
+  preConfirmQuoteTotal: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: Theme.success,
+  },
+  loadingCleaners: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 16,
+    justifyContent: "center",
+  },
+  loadingCleanersText: {
+    fontSize: 13,
+    color: Theme.mutedForeground,
+  },
+  noCleanersText: {
+    fontSize: 13,
+    color: Theme.mutedForeground,
+    textAlign: "center",
+    paddingVertical: 16,
+  },
+  cleanersList: {
+    gap: 6,
+  },
+  cleanerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: Theme.muted,
+    borderWidth: 1,
+    borderColor: Theme.border,
+  },
+  cleanerRowSelected: {
+    borderColor: Theme.primary,
+    backgroundColor: "rgba(0,145,255,0.08)",
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: Theme.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkboxChecked: {
+    backgroundColor: Theme.primary,
+    borderColor: Theme.primary,
+  },
+  cleanerName: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: Theme.foreground,
+  },
+  cleanerPhone: {
+    fontSize: 12,
+    color: Theme.mutedForeground,
+    marginTop: 1,
+  },
+  preConfirmSummaryRow: {
+    marginTop: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: "rgba(0,145,255,0.06)",
+    borderRadius: 8,
+  },
+  preConfirmSummaryText: {
+    fontSize: 13,
+    fontWeight: "500",
+    color: Theme.primary,
+    textAlign: "center",
+  },
+  // SMS prompt modal styles
+  smsPromptContent: {
+    paddingVertical: 8,
+  },
+  smsPromptTitle: {
+    fontSize: 17,
+    fontWeight: "600",
+    color: Theme.foreground,
+    textAlign: "center",
+    marginTop: 12,
+  },
+  smsPromptDesc: {
+    fontSize: 14,
+    color: Theme.mutedForeground,
+    textAlign: "center",
+    marginTop: 6,
   },
 });
