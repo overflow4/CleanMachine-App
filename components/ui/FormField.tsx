@@ -1,16 +1,22 @@
 import React from "react";
-import { View, Text, TextInput, TextInputProps, StyleSheet, Switch } from "react-native";
+import { View, Text, TextInput, TextInputProps, StyleSheet, Switch, TouchableOpacity } from "react-native";
 import { Theme } from "@/constants/colors";
 
 interface InputFieldProps extends TextInputProps {
   label: string;
 }
 
-export function InputField({ label, ...props }: InputFieldProps) {
+export function InputField({ label, style, multiline, ...props }: InputFieldProps) {
   return (
     <View>
       <Text style={s.label}>{label}</Text>
-      <TextInput style={s.input} placeholderTextColor={Theme.mutedForeground} {...props} />
+      <TextInput
+        style={[s.input, multiline && s.inputMultiline, style]}
+        placeholderTextColor={Theme.mutedForeground}
+        multiline={multiline}
+        textAlignVertical={multiline ? "top" : "center"}
+        {...props}
+      />
     </View>
   );
 }
@@ -41,17 +47,23 @@ export function ActionButton({ title, onPress, variant = "primary", loading, dis
   const textColor = variant === "outline" ? Theme.foreground : "#fff";
   const borderColor = variant === "outline" ? Theme.border : bg;
   return (
-    <View style={[s.actionBtn, { backgroundColor: bg, borderColor, opacity: disabled || loading ? 0.5 : 1 }]}>
-      <Text style={[s.actionBtnText, { color: textColor }]} onPress={disabled || loading ? undefined : onPress}>
+    <TouchableOpacity
+      style={[s.actionBtn, { backgroundColor: bg, borderColor, opacity: disabled || loading ? 0.5 : 1 }]}
+      onPress={onPress}
+      disabled={disabled || loading}
+      activeOpacity={0.7}
+    >
+      <Text style={[s.actionBtnText, { color: textColor }]}>
         {loading ? "Loading..." : title}
       </Text>
-    </View>
+    </TouchableOpacity>
   );
 }
 
 const s = StyleSheet.create({
   label: { fontSize: 13, fontWeight: "500", color: Theme.mutedForeground, marginBottom: 6 },
-  input: { borderRadius: 8, borderWidth: 1, borderColor: Theme.border, backgroundColor: Theme.muted, paddingHorizontal: 12, paddingVertical: 11, color: Theme.foreground, fontSize: 15 },
+  input: { borderRadius: 8, borderWidth: 1, borderColor: Theme.border, backgroundColor: Theme.muted, paddingHorizontal: 12, paddingVertical: 11, color: Theme.foreground, fontSize: 15, minHeight: 44 },
+  inputMultiline: { minHeight: 80, paddingTop: 11 },
   toggleRow: { flexDirection: "row", alignItems: "center", paddingVertical: 8 },
   toggleLabel: { fontSize: 14, fontWeight: "500", color: Theme.foreground },
   toggleDesc: { fontSize: 12, color: Theme.mutedForeground, marginTop: 2 },

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -11,8 +11,8 @@ import {
   Alert,
   StyleSheet,
   Switch,
-  Linking,
   ActivityIndicator,
+  Linking,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -42,19 +42,20 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { Theme } from "@/constants/colors";
 import { Customer, Message, Job, Quote } from "@/types";
 
-type Tab = "messages" | "jobs" | "quotes" | "payments" | "info" | "logs";
+type Tab = "messages" | "calls" | "jobs" | "quotes" | "payments" | "info" | "logs";
 
 interface CallRecord {
   id: string | number;
   direction: "inbound" | "outbound";
   duration?: number;
+  duration_seconds?: number;
   outcome?: string;
   transcript?: string;
   recording_url?: string;
   created_at?: string;
   timestamp?: string;
-  from?: string;
-  to?: string;
+  phone_number?: string;
+  customer_name?: string;
 }
 
 interface LogEntry {
@@ -67,25 +68,33 @@ interface LogEntry {
 
 interface TimelineItem {
   id: string;
-  type: "message" | "call";
+  type: "message";
   timestamp: string;
-  data: Message | CallRecord;
+  data: Message;
 }
 
 export default function CustomerDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, tab, expand } = useLocalSearchParams<{ id: string; tab?: string; expand?: string }>();
   const router = useRouter();
   const queryClient = useQueryClient();
 
-  const [activeTab, setActiveTab] = useState<Tab>("messages");
+  const [activeTab, setActiveTab] = useState<Tab>((tab as Tab) || "messages");
   const [newMessage, setNewMessage] = useState("");
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editForm, setEditForm] = useState<Record<string, string>>({});
   const [chargeAmount, setChargeAmount] = useState("");
-  const [expandedTranscripts, setExpandedTranscripts] = useState<Set<string>>(new Set());
   const [expandedInvoices, setExpandedInvoices] = useState<Set<string>>(new Set());
+  const [expandedTranscripts, setExpandedTranscripts] = useState<Set<string>>(
+    expand ? new Set([String(expand)]) : new Set()
+  );
   const [enrollModalVisible, setEnrollModalVisible] = useState(false);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
+
+  // When deep-link params change, update tab and expand state
+  useEffect(() => {
+    if (tab && (tab as Tab) !== activeTab) setActiveTab(tab as Tab);
+    if (expand) setExpandedTranscripts((prev) => new Set(prev).add(String(expand)));
+  }, [tab, expand]);
 
   // ───── Customer data ─────
   const customersQuery = useQuery({
@@ -113,9 +122,9 @@ export default function CustomerDetailScreen() {
   const callsQuery = useQuery({
     queryKey: ["customer-calls", id],
     queryFn: () => apiFetch<{ calls?: CallRecord[]; data?: CallRecord[] }>(`/api/calls?customer_id=${id}`),
-    enabled: !!id && activeTab === "messages",
+    enabled: !!id && activeTab === "calls",
     retry: 1,
-    refetchInterval: activeTab === "messages" ? 15000 : false,
+    refetchInterval: activeTab === "calls" ? 15000 : false,
   });
 
   const jobsQuery = useQuery({
@@ -256,12 +265,7 @@ export default function CustomerDetailScreen() {
 
   // ───── Derived data ─────
   const rawMessages: Message[] = (threadQuery.data as any)?.messages ?? [];
-  const rawCalls: CallRecord[] = useMemo(() => {
-    const d = callsQuery.data as any;
-    return d?.calls ?? d?.data ?? [];
-  }, [callsQuery.data]);
-
-  // Unified timeline: interleave messages + calls sorted by timestamp descending
+  // Chat timeline: show only SMS messages (calls have their own screen)
   const timeline: TimelineItem[] = useMemo(() => {
     const items: TimelineItem[] = [];
     for (const msg of rawMessages) {
@@ -272,17 +276,14 @@ export default function CustomerDetailScreen() {
         data: msg,
       });
     }
-    for (const call of rawCalls) {
-      items.push({
-        id: `call-${call.id}`,
-        type: "call",
-        timestamp: call.created_at || call.timestamp || "",
-        data: call,
-      });
-    }
     items.sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime());
     return items;
-  }, [rawMessages, rawCalls]);
+  }, [rawMessages]);
+
+  const customerCalls: CallRecord[] = useMemo(() => {
+    const d = callsQuery.data as any;
+    return d?.calls ?? d?.data ?? [];
+  }, [callsQuery.data]);
 
   const jobs: Job[] = useMemo(() => {
     const d = jobsQuery.data as any;
@@ -334,8 +335,12 @@ export default function CustomerDetailScreen() {
     setEditForm({
       first_name: customer.first_name || "",
       last_name: customer.last_name || "",
+      phone_number: customer.phone_number || "",
       email: customer.email || "",
       address: customer.address || "",
+      bedrooms: customer.bedrooms != null ? String(customer.bedrooms) : "",
+      bathrooms: customer.bathrooms != null ? String(customer.bathrooms) : "",
+      square_footage: customer.square_footage != null ? String(customer.square_footage) : "",
       notes: (customer as any).notes || "",
     });
     setEditModalVisible(true);
@@ -399,20 +404,20 @@ export default function CustomerDetailScreen() {
     ]);
   };
 
-  const toggleTranscript = (callId: string) => {
-    setExpandedTranscripts((prev) => {
-      const next = new Set(prev);
-      if (next.has(callId)) next.delete(callId);
-      else next.add(callId);
-      return next;
-    });
-  };
-
   const toggleInvoice = (jobId: string) => {
     setExpandedInvoices((prev) => {
       const next = new Set(prev);
       if (next.has(jobId)) next.delete(jobId);
       else next.add(jobId);
+      return next;
+    });
+  };
+
+  const toggleTranscript = (callId: string) => {
+    setExpandedTranscripts((prev) => {
+      const next = new Set(prev);
+      if (next.has(callId)) next.delete(callId);
+      else next.add(callId);
       return next;
     });
   };
@@ -426,6 +431,7 @@ export default function CustomerDetailScreen() {
 
   const tabs: { key: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
     { key: "messages", label: "Chat", icon: "chatbubble-outline" },
+    { key: "calls", label: "Calls", icon: "call-outline" },
     { key: "jobs", label: "Jobs", icon: "briefcase-outline" },
     { key: "quotes", label: "Quotes", icon: "document-text-outline" },
     { key: "payments", label: "Pay", icon: "card-outline" },
@@ -436,83 +442,15 @@ export default function CustomerDetailScreen() {
   // ───── Timeline item renderers ─────
 
   const renderTimelineItem = ({ item }: { item: TimelineItem }) => {
-    if (item.type === "message") {
-      const msg = item.data as Message;
-      const isOut = msg.direction === "outbound" || msg.role === "assistant";
-      return (
-        <View style={[st.bubble, isOut ? st.bubbleOut : st.bubbleIn]}>
-          <Text style={isOut ? st.bubbleTextOut : st.bubbleTextIn}>{msg.content}</Text>
-          <Text style={[st.bubbleTime, isOut && { color: "rgba(255,255,255,0.5)" }]}>
-            {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
-            {msg.ai_generated ? " \u2022 AI" : ""}
-          </Text>
-        </View>
-      );
-    }
-
-    // Call record
-    const call = item.data as CallRecord;
-    const isInbound = call.direction === "inbound";
-    const callId = String(call.id);
-    const isExpanded = expandedTranscripts.has(callId);
-
+    const msg = item.data as Message;
+    const isOut = msg.direction === "outbound" || msg.role === "assistant";
     return (
-      <View style={st.callCard}>
-        <View style={st.callHeader}>
-          <View style={st.callIconWrap}>
-            <Ionicons
-              name={isInbound ? "call-outline" : "arrow-redo-outline"}
-              size={16}
-              color={isInbound ? Theme.info : Theme.success}
-            />
-          </View>
-          <View style={{ flex: 1, marginLeft: 10 }}>
-            <View style={st.row}>
-              <Text style={st.callDirection}>
-                {isInbound ? "Inbound Call" : "Outbound Call"}
-              </Text>
-              {call.outcome && (
-                <View style={[st.badge, { backgroundColor: call.outcome === "completed" || call.outcome === "answered" ? Theme.successBg : Theme.warningBg }]}>
-                  <Text style={[st.badgeText, { color: call.outcome === "completed" || call.outcome === "answered" ? Theme.success : Theme.warning }]}>
-                    {call.outcome}
-                  </Text>
-                </View>
-              )}
-            </View>
-            <Text style={st.callMeta}>
-              {call.created_at || call.timestamp
-                ? new Date(call.created_at || call.timestamp!).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
-                : ""}
-              {call.duration != null ? ` \u2022 ${formatDuration(call.duration)}` : ""}
-            </Text>
-          </View>
-          {call.recording_url && (
-            <TouchableOpacity
-              onPress={() => Linking.openURL(call.recording_url!)}
-              style={st.playBtn}
-            >
-              <Ionicons name="play-circle-outline" size={24} color={Theme.primary} />
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {call.transcript && (
-          <>
-            <TouchableOpacity onPress={() => toggleTranscript(callId)} style={st.transcriptToggle}>
-              <Text style={st.transcriptToggleText}>
-                {isExpanded ? "Hide Transcript" : "Show Transcript"}
-              </Text>
-              <Ionicons
-                name={isExpanded ? "chevron-up" : "chevron-down"}
-                size={14}
-                color={Theme.mutedForeground}
-              />
-            </TouchableOpacity>
-            {isExpanded && (
-              <Text style={st.transcriptText}>{call.transcript}</Text>
-            )}
-          </>
-        )}
+      <View style={[st.bubble, isOut ? st.bubbleOut : st.bubbleIn]}>
+        <Text style={isOut ? st.bubbleTextOut : st.bubbleTextIn}>{msg.content}</Text>
+        <Text style={[st.bubbleTime, isOut && { color: "rgba(255,255,255,0.5)" }]}>
+          {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}
+          {msg.ai_generated ? " \u2022 AI" : ""}
+        </Text>
       </View>
     );
   };
@@ -578,7 +516,7 @@ export default function CustomerDetailScreen() {
             renderItem={renderTimelineItem}
             ListEmptyComponent={
               <Text style={st.emptyText}>
-                {threadQuery.isLoading || callsQuery.isLoading ? "Loading..." : "No messages or calls yet"}
+                {threadQuery.isLoading ? "Loading..." : "No messages yet"}
               </Text>
             }
           />
@@ -603,6 +541,114 @@ export default function CustomerDetailScreen() {
             </TouchableOpacity>
           </View>
         </View>
+      )}
+
+      {/* ────── Calls Tab ────── */}
+      {activeTab === "calls" && (
+        <ScrollView contentContainerStyle={{ padding: 16, gap: 8 }}>
+          {callsQuery.isLoading ? (
+            <View style={{ paddingVertical: 32, alignItems: "center" }}>
+              <ActivityIndicator size="small" color={Theme.primary} />
+              <Text style={st.emptyText}>Loading calls...</Text>
+            </View>
+          ) : customerCalls.length === 0 ? (
+            <Text style={st.emptyText}>No calls</Text>
+          ) : (
+            customerCalls.map((call) => {
+              const callId = String(call.id);
+              const isInbound = call.direction === "inbound";
+              const isExpanded = expandedTranscripts.has(callId);
+              const dur = call.duration_seconds ?? call.duration ?? 0;
+              return (
+                <GlassCard key={callId}>
+                  <View style={st.row}>
+                    <View style={st.callIconWrap}>
+                      <Ionicons
+                        name={isInbound ? "call-outline" : "arrow-redo-outline"}
+                        size={16}
+                        color={isInbound ? Theme.info : Theme.success}
+                      />
+                    </View>
+                    <View style={{ flex: 1, marginLeft: 10 }}>
+                      <View style={st.row}>
+                        <Text style={st.callDirection}>
+                          {isInbound ? "Inbound Call" : "Outbound Call"}
+                        </Text>
+                        {call.outcome && (
+                          <View
+                            style={[
+                              st.badge,
+                              {
+                                backgroundColor:
+                                  call.outcome === "completed" || call.outcome === "answered"
+                                    ? Theme.successBg
+                                    : Theme.warningBg,
+                              },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                st.badgeText,
+                                {
+                                  color:
+                                    call.outcome === "completed" || call.outcome === "answered"
+                                      ? Theme.success
+                                      : Theme.warning,
+                                },
+                              ]}
+                            >
+                              {call.outcome}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={st.meta}>
+                        {call.created_at || call.timestamp
+                          ? new Date(call.created_at || call.timestamp!).toLocaleString([], {
+                              month: "short",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })
+                          : ""}
+                        {dur > 0 ? ` \u2022 ${formatDuration(dur)}` : ""}
+                      </Text>
+                    </View>
+                    {call.recording_url && (
+                      <TouchableOpacity
+                        onPress={() => Linking.openURL(call.recording_url!)}
+                        style={{ padding: 4 }}
+                      >
+                        <Ionicons name="play-circle-outline" size={24} color={Theme.primary} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                  {call.transcript && (
+                    <>
+                      <TouchableOpacity
+                        onPress={() => toggleTranscript(callId)}
+                        style={st.transcriptToggle}
+                      >
+                        <Text style={st.transcriptToggleText}>
+                          {isExpanded ? "Hide Transcript" : "Show Transcript"}
+                        </Text>
+                        <Ionicons
+                          name={isExpanded ? "chevron-up" : "chevron-down"}
+                          size={14}
+                          color={Theme.mutedForeground}
+                        />
+                      </TouchableOpacity>
+                      {isExpanded && (
+                        <Text style={st.transcriptText}>{call.transcript}</Text>
+                      )}
+                    </>
+                  )}
+                </GlassCard>
+              );
+            })
+          )}
+        </ScrollView>
       )}
 
       {/* ────── Jobs Tab ────── */}
@@ -1054,31 +1100,76 @@ export default function CustomerDetailScreen() {
           label="First Name"
           value={editForm.first_name || ""}
           onChangeText={(v) => setEditForm((p) => ({ ...p, first_name: v }))}
+          autoCapitalize="words"
+          returnKeyType="next"
         />
         <InputField
           label="Last Name"
           value={editForm.last_name || ""}
           onChangeText={(v) => setEditForm((p) => ({ ...p, last_name: v }))}
+          autoCapitalize="words"
+          returnKeyType="next"
+        />
+        <InputField
+          label="Phone Number"
+          value={editForm.phone_number || ""}
+          onChangeText={(v) => setEditForm((p) => ({ ...p, phone_number: v }))}
+          keyboardType="phone-pad"
+          returnKeyType="next"
         />
         <InputField
           label="Email"
           value={editForm.email || ""}
           onChangeText={(v) => setEditForm((p) => ({ ...p, email: v }))}
+          keyboardType="email-address"
+          autoCapitalize="none"
+          returnKeyType="next"
         />
         <InputField
           label="Address"
           value={editForm.address || ""}
           onChangeText={(v) => setEditForm((p) => ({ ...p, address: v }))}
+          returnKeyType="next"
+        />
+        <InputField
+          label="Bedrooms"
+          value={editForm.bedrooms || ""}
+          onChangeText={(v) => setEditForm((p) => ({ ...p, bedrooms: v }))}
+          keyboardType="number-pad"
+          returnKeyType="next"
+        />
+        <InputField
+          label="Bathrooms"
+          value={editForm.bathrooms || ""}
+          onChangeText={(v) => setEditForm((p) => ({ ...p, bathrooms: v }))}
+          keyboardType="number-pad"
+          returnKeyType="next"
+        />
+        <InputField
+          label="Square Footage"
+          value={editForm.square_footage || ""}
+          onChangeText={(v) => setEditForm((p) => ({ ...p, square_footage: v }))}
+          keyboardType="number-pad"
+          returnKeyType="next"
         />
         <InputField
           label="Notes"
           value={editForm.notes || ""}
           onChangeText={(v) => setEditForm((p) => ({ ...p, notes: v }))}
+          multiline
+          numberOfLines={3}
+          returnKeyType="done"
         />
         <View style={{ marginTop: 8 }}>
           <ActionButton
             title="Save Changes"
-            onPress={() => editMutation.mutate(editForm)}
+            onPress={() => {
+              const payload: Record<string, any> = { ...editForm };
+              if (payload.bedrooms) payload.bedrooms = Number(payload.bedrooms);
+              if (payload.bathrooms) payload.bathrooms = Number(payload.bathrooms);
+              if (payload.square_footage) payload.square_footage = Number(payload.square_footage);
+              editMutation.mutate(payload);
+            }}
             variant="primary"
             loading={editMutation.isPending}
           />
@@ -1280,17 +1371,7 @@ const st = StyleSheet.create({
     borderBottomColor: "rgba(255,255,255,0.06)",
   },
 
-  // Call record styles
-  callCard: {
-    backgroundColor: Theme.glassCard,
-    borderWidth: 1,
-    borderColor: Theme.glassCardBorder,
-    borderRadius: 12,
-    padding: 12,
-    alignSelf: "stretch",
-    maxWidth: "100%",
-  },
-  callHeader: { flexDirection: "row", alignItems: "center" },
+  // Call styles
   callIconWrap: {
     width: 32,
     height: 32,
@@ -1300,8 +1381,6 @@ const st = StyleSheet.create({
     justifyContent: "center",
   },
   callDirection: { fontSize: 13, fontWeight: "600", color: Theme.foreground },
-  callMeta: { fontSize: 11, color: Theme.mutedForeground, marginTop: 2 },
-  playBtn: { padding: 4 },
   transcriptToggle: {
     flexDirection: "row",
     alignItems: "center",

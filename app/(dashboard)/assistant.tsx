@@ -15,7 +15,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as SecureStore from "expo-secure-store";
-import { brainQuery } from "@/lib/api";
+import { brainQuery, fetchBrainHistory } from "@/lib/api";
 import { Theme } from "@/constants/colors";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -208,11 +208,74 @@ export default function AssistantScreen() {
   const [showHistory, setShowHistory] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
-  // Load conversations on mount
+  // Load conversations on mount — merge local + server history
   useEffect(() => {
-    loadConversations().then((convos) => {
-      setConversations(convos);
-    });
+    (async () => {
+      // Load local conversations first for instant display
+      const local = await loadConversations();
+      setConversations(local);
+
+      // Fetch server-side conversation history
+      try {
+        const res: any = await fetchBrainHistory();
+        const serverConvos: Conversation[] = [];
+
+        // The API may return conversations in different shapes — normalize
+        const raw = res.conversations || res.data?.conversations || res.history || res.data?.history || res.data || [];
+        const items = Array.isArray(raw) ? raw : [];
+
+        for (const item of items) {
+          // Each server conversation may have: id, query/question, answer/response, created_at/timestamp
+          const id = String(item.id || item._id || "");
+          if (!id) continue;
+
+          const userContent = item.query || item.question || item.prompt || "";
+          const assistantContent = item.answer || item.response || item.reply || "";
+          if (!userContent && !assistantContent) continue;
+
+          const ts = item.created_at || item.timestamp || item.updatedAt || new Date().toISOString();
+
+          const messages: ChatMessage[] = [WELCOME_MESSAGE];
+          if (userContent) {
+            messages.push({
+              id: `server-${id}-user`,
+              role: "user",
+              content: userContent,
+              timestamp: ts,
+            });
+          }
+          if (assistantContent) {
+            messages.push({
+              id: `server-${id}-assistant`,
+              role: "assistant",
+              content: assistantContent,
+              timestamp: ts,
+            });
+          }
+
+          serverConvos.push({
+            id: `server-${id}`,
+            title: (userContent || "Conversation").slice(0, 50) + (userContent.length > 50 ? "..." : ""),
+            messages,
+            updatedAt: ts,
+          });
+        }
+
+        if (serverConvos.length > 0) {
+          // Merge: local conversations first, then server ones not already present
+          const localIds = new Set(local.map((c) => c.id));
+          const merged = [
+            ...local,
+            ...serverConvos.filter((sc) => !localIds.has(sc.id)),
+          ];
+          // Sort by updatedAt descending
+          merged.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+          setConversations(merged);
+        }
+      } catch {
+        // Server history unavailable — local conversations are already loaded
+      }
+    })();
   }, []);
 
   // Persist current conversation after each message exchange

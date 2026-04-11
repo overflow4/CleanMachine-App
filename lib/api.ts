@@ -378,6 +378,10 @@ export async function brainQuery(query: string) {
   return apiFetch("/api/actions/brain-query", { method: "POST", body: JSON.stringify({ query }) });
 }
 
+export async function fetchBrainHistory() {
+  return apiFetch<any>("/api/actions/brain-query");
+}
+
 export async function fetchJobInvoiceDetails(customerId: string) {
   return apiFetch(`/api/actions/job-invoice-details?customerId=${customerId}`);
 }
