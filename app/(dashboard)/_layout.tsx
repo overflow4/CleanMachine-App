@@ -102,7 +102,8 @@ export default function DashboardLayout() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<GroupedResults[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
-  const searchCacheRef = useRef<{ customers: any[]; conversations: any[]; calls: any[]; leads: any[]; jobs: any[]; ts: number } | null>(null);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [notifCount, setNotifCount] = useState(0);
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
   const router = useRouter();
@@ -130,172 +131,97 @@ export default function DashboardLayout() {
     }
   }, [systemActive, refresh]);
 
-  const loadSearchData = useCallback(async () => {
-    // Re-use cache if less than 2 min old
-    if (searchCacheRef.current && Date.now() - searchCacheRef.current.ts < 120_000) return;
-    setSearchLoading(true);
-    try {
-      const [custRes, convRes, callRes, leadRes, jobRes] = await Promise.allSettled([
-        apiFetch("/api/customers"),
-        apiFetch("/api/actions/inbox"),
-        apiFetch("/api/calls"),
-        apiFetch("/api/leads"),
-        apiFetch("/api/jobs"),
-      ]);
-      const val = (r: PromiseSettledResult<any>) => (r.status === "fulfilled" ? r.value : null);
-      const cr = val(custRes);
-      const cv = val(convRes);
-      const ca = val(callRes);
-      const lr = val(leadRes);
-      const jr = val(jobRes);
-      searchCacheRef.current = {
-        customers: cr?.data?.customers ?? cr?.data ?? cr?.customers ?? [],
-        conversations: cv?.conversations ?? cv?.data?.conversations ?? cv?.data ?? [],
-        calls: ca?.calls ?? ca?.data ?? [],
-        leads: lr?.data ?? lr?.leads ?? [],
-        jobs: jr?.data ?? jr?.jobs ?? [],
-        ts: Date.now(),
-      };
-    } finally {
-      setSearchLoading(false);
-    }
+  // Fetch notification count periodically
+  useEffect(() => {
+    const loadNotifs = async () => {
+      try {
+        const res: any = await apiFetch("/api/notifications");
+        const items = res?.data ?? res?.notifications ?? [];
+        setNotifCount(Array.isArray(items) ? items.length : 0);
+      } catch { /* ignore */ }
+    };
+    loadNotifs();
+    const interval = setInterval(loadNotifs, 60000);
+    return () => clearInterval(interval);
   }, []);
 
   const openSearch = useCallback(() => {
     setSearchOpen(true);
     setSearchQuery("");
     setSearchResults([]);
-    loadSearchData();
-  }, [loadSearchData]);
+  }, []);
 
   const closeSearch = useCallback(() => {
     setSearchOpen(false);
     setSearchQuery("");
     setSearchResults([]);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
   }, []);
 
-  const filterSearch = useCallback((text: string) => {
+  const handleSearchChange = useCallback((text: string) => {
     setSearchQuery(text);
-    if (!text.trim() || !searchCacheRef.current) {
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+
+    if (!text.trim() || text.trim().length < 2) {
       setSearchResults([]);
+      setSearchLoading(false);
       return;
     }
-    const q = text.toLowerCase();
-    const cache = searchCacheRef.current;
-    const grouped: GroupedResults[] = [];
 
-    // Build phone → customer lookup for linking calls to customers
-    const phoneToCustomer: Record<string, any> = {};
-    for (const c of cache.customers) {
-      if (c.phone_number) {
-        const digits = c.phone_number.replace(/\D/g, "");
-        phoneToCustomer[digits] = c;
-        if (digits.length >= 10) phoneToCustomer[digits.slice(-10)] = c;
+    setSearchLoading(true);
+    searchTimer.current = setTimeout(async () => {
+      try {
+        // Use server-side search API — searches across all 9 categories (customers, messages, calls, jobs, leads, cleaners, team messages, campaigns)
+        const res: any = await apiFetch(`/api/search?q=${encodeURIComponent(text.trim())}`);
+        const results: any[] = res?.results ?? res?.data?.results ?? [];
+
+        // Group results by category
+        const groupMap: Record<string, SearchResult[]> = {};
+        for (const r of results) {
+          const category = (r.category || "Other").toLowerCase();
+          if (!groupMap[category]) groupMap[category] = [];
+
+          // Build route from href + params
+          let route = "";
+          const href = r.href || "";
+          const params = r.params || {};
+          if (params.customerId) {
+            route = `/(dashboard)/customers/${params.customerId}`;
+            if (params.q) route += `?tab=messages`;
+          } else if (href.includes("/customers")) {
+            route = params.phone ? `/(dashboard)/customers` : "/(dashboard)/customers";
+          } else if (href.includes("/jobs")) {
+            route = "/(dashboard)/calendar";
+          } else if (href.includes("/teams")) {
+            route = "/(dashboard)/teams";
+          } else if (href.includes("/campaigns")) {
+            route = "/(dashboard)/campaigns";
+          } else {
+            route = `/(dashboard)${href || "/overview"}`;
+          }
+
+          groupMap[category].push({
+            id: `${category}-${groupMap[category].length}`,
+            category,
+            title: r.title || "Untitled",
+            subtitle: r.subtitle || "",
+            snippet: r.title?.length > 60 ? r.title : undefined,
+            route,
+          });
+        }
+
+        const grouped: GroupedResults[] = Object.entries(groupMap).map(([category, data]) => ({
+          category,
+          data,
+        }));
+
+        setSearchResults(grouped);
+      } catch {
+        setSearchResults([]);
+      } finally {
+        setSearchLoading(false);
       }
-    }
-
-    // ── Customers ──
-    const matchedCustomers = cache.customers
-      .filter((c: any) =>
-        c.name?.toLowerCase().includes(q) ||
-        c.phone_number?.toLowerCase().includes(q) ||
-        c.email?.toLowerCase().includes(q) ||
-        c.address?.toLowerCase().includes(q)
-      )
-      .slice(0, 8)
-      .map((c: any) => ({
-        id: `cust-${c.id}`,
-        category: "customers",
-        title: c.name || "Unknown",
-        subtitle: c.phone_number || c.email || "",
-        route: `/(dashboard)/customers/${c.id}`,
-      }));
-    if (matchedCustomers.length) grouped.push({ category: "customers", data: matchedCustomers });
-
-    // ── Messages (inbox conversations) ──
-    const matchedMessages = cache.conversations
-      .filter((c: any) =>
-        c.customer_name?.toLowerCase().includes(q) ||
-        c.last_message?.toLowerCase().includes(q) ||
-        c.phone_number?.includes(q)
-      )
-      .slice(0, 8)
-      .map((c: any) => ({
-        id: `msg-${c.customer_id}`,
-        category: "messages",
-        title: c.customer_name || c.phone_number || "Unknown",
-        subtitle: c.phone_number || "",
-        snippet: c.last_message?.toLowerCase().includes(q) ? searchSnippet(c.last_message, text) : undefined,
-        route: `/(dashboard)/customers/${c.customer_id}?tab=messages`,
-      }));
-    if (matchedMessages.length) grouped.push({ category: "messages", data: matchedMessages });
-
-    // ── Calls & Transcripts ──
-    const matchedCalls = cache.calls
-      .filter((c: any) =>
-        c.customer_name?.toLowerCase().includes(q) ||
-        c.transcript?.toLowerCase().includes(q) ||
-        c.phone_number?.includes(q) ||
-        c.outcome?.toLowerCase().includes(q)
-      )
-      .slice(0, 8)
-      .map((c: any) => {
-        const digits = c.phone_number?.replace(/\D/g, "") || "";
-        const matched = phoneToCustomer[digits] || phoneToCustomer[digits.slice(-10)];
-        const customerId = matched?.id || c.customer_id;
-        const hasTranscript = c.transcript?.toLowerCase().includes(q);
-        return {
-          id: `call-${c.id}`,
-          category: "calls",
-          title: `${c.direction === "inbound" ? "Inbound" : "Outbound"} Call${c.customer_name ? ` \u2022 ${c.customer_name}` : ""}`,
-          subtitle: c.phone_number || "",
-          snippet: hasTranscript ? searchSnippet(c.transcript, text) : undefined,
-          route: customerId
-            ? `/(dashboard)/customers/${customerId}?tab=calls&expand=${c.id}`
-            : `/(dashboard)/calls`,
-        };
-      });
-    if (matchedCalls.length) grouped.push({ category: "calls", data: matchedCalls });
-
-    // ── Jobs ──
-    const matchedJobs = cache.jobs
-      .filter((j: any) =>
-        j.title?.toLowerCase().includes(q) ||
-        j.customer_name?.toLowerCase().includes(q) ||
-        j.notes?.toLowerCase().includes(q) ||
-        j.address?.toLowerCase().includes(q) ||
-        j.service_type?.toLowerCase().includes(q)
-      )
-      .slice(0, 6)
-      .map((j: any) => ({
-        id: `job-${j.id}`,
-        category: "jobs",
-        title: j.title || j.customer_name || "Job",
-        subtitle: j.address || j.service_type || j.status || "",
-        route: "/(dashboard)/calendar",
-      }));
-    if (matchedJobs.length) grouped.push({ category: "jobs", data: matchedJobs });
-
-    // ── Leads ──
-    const matchedLeads = cache.leads
-      .filter((l: any) =>
-        l.name?.toLowerCase().includes(q) ||
-        l.phone?.toLowerCase().includes(q) ||
-        l.email?.toLowerCase().includes(q) ||
-        l.service_interest?.toLowerCase().includes(q) ||
-        l.source?.toLowerCase().includes(q)
-      )
-      .slice(0, 6)
-      .map((l: any) => ({
-        id: `lead-${l.id}`,
-        category: "leads",
-        title: l.name || "Unknown Lead",
-        subtitle: [l.status, l.service_interest].filter(Boolean).join(" \u2022 ") || l.phone || "",
-        route: "/(dashboard)/leads",
-      }));
-    if (matchedLeads.length) grouped.push({ category: "leads", data: matchedLeads });
-
-    setSearchResults(grouped);
+    }, 300);
   }, []);
 
   const handleResultPress = useCallback(
@@ -377,6 +303,20 @@ export default function DashboardLayout() {
             </Text>
 
             <View style={styles.topNavRight}>
+              {/* Notification Bell */}
+              <TouchableOpacity
+                onPress={() => router.push("/(dashboard)/exceptions" as any)}
+                style={styles.searchButton}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="notifications-outline" size={20} color={Theme.foreground} />
+                {notifCount > 0 && (
+                  <View style={styles.notifDot}>
+                    <Text style={styles.notifDotText}>{notifCount > 9 ? "9+" : notifCount}</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+
               {/* Search Button */}
               <TouchableOpacity
                 onPress={openSearch}
@@ -479,13 +419,13 @@ export default function DashboardLayout() {
                     placeholder="Search customers, jobs, leads..."
                     placeholderTextColor={Theme.mutedForeground}
                     value={searchQuery}
-                    onChangeText={filterSearch}
+                    onChangeText={handleSearchChange}
                     autoFocus
                     returnKeyType="search"
                     selectionColor={Theme.primary}
                   />
                   {searchQuery.length > 0 && (
-                    <TouchableOpacity onPress={() => filterSearch("")}>
+                    <TouchableOpacity onPress={() => handleSearchChange("")}>
                       <Ionicons name="close-circle" size={18} color={Theme.mutedForeground} />
                     </TouchableOpacity>
                   )}
@@ -633,6 +573,12 @@ const styles = StyleSheet.create({
   },
   searchResultTitle: { fontSize: 14, fontWeight: "500", color: Theme.foreground },
   searchResultSub: { fontSize: 12, color: Theme.mutedForeground, marginTop: 2 },
+  notifDot: {
+    position: "absolute", top: 2, right: 2, minWidth: 16, height: 16,
+    borderRadius: 8, backgroundColor: Theme.destructive,
+    alignItems: "center", justifyContent: "center", paddingHorizontal: 3,
+  },
+  notifDotText: { fontSize: 9, fontWeight: "700", color: "#fff" },
   searchSnippet: {
     fontSize: 12, color: Theme.zinc400, marginTop: 4,
     fontStyle: "italic", lineHeight: 17,

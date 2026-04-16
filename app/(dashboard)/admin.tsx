@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View, Text, ScrollView, RefreshControl, TouchableOpacity,
   Alert, TextInput, StyleSheet, Switch, ActivityIndicator,
@@ -6,12 +6,20 @@ import {
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { fetchSettings, updateSettings, fetchTeams, apiFetch } from "@/lib/api";
+import * as Clipboard from "expo-clipboard";
+import {
+  fetchSettings, updateSettings, fetchTeams, fetchAdminUsers,
+  fetchSystemEvents, adminTestConnection, adminRegisterWebhook,
+  adminResetCustomer, seedDemoData, sendEmployeeCredentials,
+  apiFetch,
+} from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { LoadingScreen } from "@/components/ui/LoadingScreen";
 import { Theme } from "@/constants/colors";
 import { Cleaner, TenantSettings } from "@/types";
+
+/* ── Constants ── */
 
 const TEST_PERSONS = [
   { name: "Dominic", phone: "4242755847" },
@@ -19,9 +27,17 @@ const TEST_PERSONS = [
   { name: "Jack", phone: "4157204580", email: "JasperGrenager@gmail.com" },
 ];
 
-type Tab = "controls" | "settings" | "cleaners" | "tenant" | "credentials" | "onboard";
+type Tab = "controls" | "settings" | "credentials" | "cleaners" | "events" | "demo";
 
-/* ── Credential schema ── */
+const INTEGRATIONS = [
+  { key: "openphone", label: "OpenPhone", icon: "call-outline" as const },
+  { key: "stripe", label: "Stripe", icon: "card-outline" as const },
+  { key: "vapi", label: "VAPI", icon: "mic-outline" as const },
+  { key: "hcp", label: "HCP", icon: "home-outline" as const },
+  { key: "ghl", label: "GHL", icon: "megaphone-outline" as const },
+  { key: "wave", label: "Wave", icon: "analytics-outline" as const },
+];
+
 const CREDENTIAL_SECTIONS = [
   {
     provider: "OpenPhone",
@@ -46,52 +62,114 @@ const CREDENTIAL_SECTIONS = [
       { key: "stripe_webhook_secret", label: "Webhook Secret" },
     ],
   },
+  {
+    provider: "HCP",
+    fields: [
+      { key: "hcp_api_key", label: "API Key" },
+    ],
+  },
+  {
+    provider: "GHL",
+    fields: [
+      { key: "ghl_api_key", label: "API Key" },
+      { key: "ghl_location_id", label: "Location ID" },
+    ],
+  },
 ];
 
-const FLOW_OPTIONS: { label: string; value: string }[] = [
-  { label: "Inbound", value: "inbound" },
-  { label: "Outbound", value: "outbound" },
-  { label: "Both", value: "both" },
+const FLOW_TYPES: { value: string; label: string; description: string }[] = [
+  { value: "winbros", label: "WinBros", description: "Window cleaning focused flow" },
+  { value: "spotless", label: "Spotless", description: "House cleaning focused flow" },
+  { value: "cedar", label: "Cedar", description: "Multi-service cedar flow" },
 ];
+
+const WORKFLOW_TOGGLES: { key: string; label: string; description: string }[] = [
+  { key: "sms_auto_response_enabled", label: "SMS Auto-Response", description: "AI responds to incoming messages automatically" },
+  { key: "use_housecall_pro", label: "HCP Sync", description: "Sync jobs and customers with HousecallPro" },
+  { key: "use_stripe", label: "Payment Collection", description: "Collect payments via Stripe" },
+  { key: "use_vapi_inbound", label: "VAPI Inbound", description: "Handle inbound calls with VAPI AI" },
+  { key: "cleaner_assignment_auto", label: "Auto Assignment", description: "Automatically assign cleaners to new jobs" },
+  { key: "lead_followup_enabled", label: "Lead Follow-up", description: "Automated lead follow-up sequences" },
+  { key: "require_deposit", label: "Require Deposit", description: "Require deposit before job confirmation" },
+  { key: "use_route_optimization", label: "Route Optimization", description: "Optimize daily routes for crews" },
+  { key: "use_card_on_file", label: "Card on File", description: "Require card on file for booking" },
+  { key: "team_routing_enabled", label: "Team Routing", description: "Route jobs to specific teams by area" },
+  { key: "review_request_enabled", label: "Review Requests", description: "Send review requests after job completion" },
+  { key: "retargeting_enabled", label: "Retargeting", description: "Re-engage inactive customers automatically" },
+  { key: "rainy_day_reschedule", label: "Rainy Day Reschedule", description: "Auto-reschedule jobs on rainy days" },
+];
+
+const DEMO_ACTIONS: { action: string; label: string; icon: string }[] = [
+  { action: "seed_all", label: "Seed All Data", icon: "layers-outline" },
+  { action: "add_team", label: "Add Team", icon: "people-outline" },
+  { action: "add_cleaner", label: "Add Cleaner", icon: "person-add-outline" },
+  { action: "add_job", label: "Add Job", icon: "briefcase-outline" },
+  { action: "add_lead", label: "Add Lead", icon: "flash-outline" },
+  { action: "add_call", label: "Add Call", icon: "call-outline" },
+  { action: "add_tip", label: "Add Tip", icon: "cash-outline" },
+  { action: "add_upsell", label: "Add Upsell", icon: "trending-up-outline" },
+  { action: "add_message", label: "Add Message", icon: "chatbubble-outline" },
+];
+
+const EVENT_SOURCES = ["all", "system", "webhook", "cron", "api", "user"];
+
+/* ── Main Component ── */
 
 export default function AdminScreen() {
   const [activeTab, setActiveTab] = useState<Tab>("controls");
   const { tenant, refresh } = useAuth();
   const queryClient = useQueryClient();
-  const [resettingPerson, setResettingPerson] = useState<string | null>(null);
-  const [resetResult, setResetResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  /* top-level state */
+  const [systemActive, setSystemActive] = useState(tenant?.active ?? true);
+
+  /* controls tab */
+  const [flowType, setFlowType] = useState(
+    (tenant?.workflow_config as any)?.flow_type ?? "spotless"
+  );
+  const [followupStages, setFollowupStages] = useState(
+    String(tenant?.workflow_config?.lead_followup_stages ?? 3)
+  );
+  const [followupDelay, setFollowupDelay] = useState("24");
+  const [skipCallsForSms, setSkipCallsForSms] = useState(false);
+
+  /* settings tab */
   const [editSettings, setEditSettings] = useState<Record<string, string>>({});
 
-  /* credentials tab state */
+  /* credentials tab */
   const [credentials, setCredentials] = useState<Record<string, string>>({});
   const [revealedFields, setRevealedFields] = useState<Record<string, boolean>>({});
   const [credSaving, setCredSaving] = useState(false);
-  const [credTesting, setCredTesting] = useState(false);
-  const [credResult, setCredResult] = useState<{ success: boolean; message: string } | null>(null);
-  const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message: string }> | null>(null);
+  const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message: string }>>({});
   const [providerTesting, setProviderTesting] = useState<string | null>(null);
-  const [registeringWebhooks, setRegisteringWebhooks] = useState(false);
-  const [webhookResult, setWebhookResult] = useState<{ success: boolean; message: string; details?: any } | null>(null);
-  const [cloningVapi, setCloningVapi] = useState(false);
-  const [cloneResult, setCloneResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [webhookRegistering, setWebhookRegistering] = useState<string | null>(null);
 
-  /* onboard tab state */
-  const [onboardStep, setOnboardStep] = useState(1);
-  const [onboardData, setOnboardData] = useState<Record<string, string>>({
-    business_name: "",
-    slug: "",
-    password: "",
-    flow_type: "inbound",
-  });
-  const [onboardCreds, setOnboardCreds] = useState<Record<string, string>>({});
-  const [onboardLoading, setOnboardLoading] = useState(false);
-  const [onboardResult, setOnboardResult] = useState<{ success: boolean; message: string } | null>(null);
+  /* events tab */
+  const [eventSource, setEventSource] = useState("all");
+  const [expandedEvent, setExpandedEvent] = useState<string | null>(null);
 
+  /* demo tab */
+  const [seedingAction, setSeedingAction] = useState<string | null>(null);
+  const [resettingPerson, setResettingPerson] = useState<string | null>(null);
+  const [deletingBusiness, setDeletingBusiness] = useState(false);
+
+  /* seasonal campaigns */
+  const [campaigns, setCampaigns] = useState<any[]>([]);
+
+  /* queries */
   const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: fetchSettings });
-  const teamsQuery = useQuery({ queryKey: ["teams"], queryFn: fetchTeams, enabled: activeTab === "cleaners" });
+  const teamsQuery = useQuery({ queryKey: ["teams"], queryFn: fetchTeams, enabled: activeTab === "cleaners" || activeTab === "controls" });
+  const usersQuery = useQuery({ queryKey: ["admin-users"], queryFn: fetchAdminUsers, enabled: activeTab === "controls" });
+  const eventsQuery = useQuery({
+    queryKey: ["system-events", eventSource],
+    queryFn: () => fetchSystemEvents(eventSource !== "all" ? { source: eventSource } : undefined),
+    enabled: activeTab === "events",
+  });
 
   const settings: TenantSettings = (settingsQuery.data as any)?.settings ?? (settingsQuery.data as any)?.data?.settings ?? {};
   const cleaners: Cleaner[] = (teamsQuery.data as any)?.data?.cleaners ?? (teamsQuery.data as any)?.cleaners ?? (teamsQuery.data as any)?.data ?? [];
+  const users: any[] = (usersQuery.data as any)?.data?.users ?? (usersQuery.data as any)?.users ?? (usersQuery.data as any)?.data ?? [];
+  const events: any[] = (eventsQuery.data as any)?.data?.events ?? (eventsQuery.data as any)?.events ?? (eventsQuery.data as any)?.data ?? [];
 
   const settingsMutation = useMutation({
     mutationFn: (data: Record<string, unknown>) => updateSettings(data),
@@ -102,23 +180,42 @@ export default function AdminScreen() {
     onError: (err: Error) => Alert.alert("Error", err.message),
   });
 
-  const resetPerson = async (person: typeof TEST_PERSONS[0]) => {
-    setResettingPerson(person.name);
-    setResetResult(null);
-    try {
-      await apiFetch("/api/admin/reset-customer", {
-        method: "POST",
-        body: JSON.stringify({ phoneNumber: person.phone, email: (person as any).email, crossTenant: true }),
-      });
-      setResetResult({ success: true, message: `${person.name} reset successfully` });
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (err: any) {
-      setResetResult({ success: false, message: err.message });
-    } finally {
-      setResettingPerson(null);
-    }
+  /* ── Setup progress ── */
+  const setupChecklist = [
+    { label: "OpenPhone credentials", done: !!(tenant as any)?.openphone_api_key || !!credentials.openphone_api_key },
+    { label: "Stripe credentials", done: !!tenant?.stripe_secret_key || !!credentials.stripe_secret_key },
+    { label: "VAPI credentials", done: !!(tenant as any)?.vapi_api_key || !!credentials.vapi_api_key },
+    { label: "Webhook registered", done: !!(tenant as any)?.webhook_registered },
+    { label: "Business name set", done: !!settings.business_name || !!tenant?.business_name },
+    { label: "At least 1 cleaner", done: cleaners.length > 0 },
+  ];
+  const setupDone = setupChecklist.filter((c) => c.done).length;
+  const setupTotal = setupChecklist.length;
+  const setupPct = Math.round((setupDone / setupTotal) * 100);
+
+  /* ── Integration statuses ── */
+  const getIntegrationStatus = (key: string): "connected" | "untested" | "not_configured" => {
+    if (testResults[key]?.ok) return "connected";
+    const hasCredential = CREDENTIAL_SECTIONS.some(
+      (s) => s.provider.toLowerCase() === key && s.fields.some((f) => credentials[f.key] || (tenant as any)?.[f.key])
+    );
+    if (hasCredential) return "untested";
+    return "not_configured";
   };
 
+  const statusColor = (status: "connected" | "untested" | "not_configured") => {
+    if (status === "connected") return Theme.success;
+    if (status === "untested") return Theme.warning;
+    return Theme.mutedForeground;
+  };
+
+  const statusLabel = (status: "connected" | "untested" | "not_configured") => {
+    if (status === "connected") return "Connected";
+    if (status === "untested") return "Untested";
+    return "Not configured";
+  };
+
+  /* ── Helpers ── */
   const toggleTenantField = async (field: string, value: boolean) => {
     try {
       await apiFetch("/api/admin/tenants", {
@@ -132,104 +229,120 @@ export default function AdminScreen() {
     }
   };
 
-  const onRefresh = async () => {
-    await Promise.all([settingsQuery.refetch(), teamsQuery.refetch()]);
+  const toggleSystem = async (v: boolean) => {
+    setSystemActive(v);
+    await toggleTenantField("active", v);
   };
 
-  /* ── Credentials helpers ── */
+  const testConnection = async (service: string) => {
+    setProviderTesting(service);
+    try {
+      const res: any = await adminTestConnection({ service });
+      const ok = res?.data?.ok ?? res?.ok ?? res?.success ?? false;
+      const message = res?.data?.message ?? res?.message ?? (ok ? "Connected" : "Failed");
+      setTestResults((prev) => ({ ...prev, [service]: { ok, message } }));
+      Haptics.notificationAsync(ok ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Error);
+    } catch (err: any) {
+      setTestResults((prev) => ({ ...prev, [service]: { ok: false, message: err.message } }));
+    } finally {
+      setProviderTesting(null);
+    }
+  };
+
+  const registerWebhook = async (service: string) => {
+    setWebhookRegistering(service);
+    try {
+      await adminRegisterWebhook({ service });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert("Success", `Webhook registered for ${service}`);
+    } catch (err: any) {
+      Alert.alert("Error", err.message);
+    } finally {
+      setWebhookRegistering(null);
+    }
+  };
+
   const maskValue = (val: string | undefined) => {
     if (!val) return "";
     if (val.length <= 4) return val;
     return "\u2022".repeat(val.length - 4) + val.slice(-4);
   };
 
-  const toggleReveal = (key: string) =>
-    setRevealedFields((prev) => ({ ...prev, [key]: !prev[key] }));
+  const copyToClipboard = async (value: string, label: string) => {
+    await Clipboard.setStringAsync(value);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Alert.alert("Copied", `${label} copied to clipboard`);
+  };
 
   const saveCredentials = async () => {
     setCredSaving(true);
-    setCredResult(null);
     try {
       await apiFetch("/api/admin/tenants", {
         method: "PATCH",
         body: JSON.stringify({ tenantId: tenant?.id, credentials }),
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setCredResult({ success: true, message: "Credentials saved" });
+      Alert.alert("Saved", "Credentials saved successfully");
     } catch (err: any) {
-      setCredResult({ success: false, message: err.message });
+      Alert.alert("Error", err.message);
     } finally {
       setCredSaving(false);
     }
   };
 
-  const testConnections = async () => {
-    setCredTesting(true);
-    setTestResults(null);
+  const runSeedAction = async (action: string) => {
+    setSeedingAction(action);
     try {
-      const res: any = await apiFetch("/api/admin/test-connections", {
-        method: "POST",
-      });
-      const results = res?.data?.results ?? res?.results ?? {};
-      setTestResults(results);
+      await seedDemoData(action);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert("Success", `Demo action "${action}" completed`);
+      queryClient.invalidateQueries();
     } catch (err: any) {
-      setTestResults({ _error: { ok: false, message: err.message } });
+      Alert.alert("Error", err.message);
     } finally {
-      setCredTesting(false);
+      setSeedingAction(null);
     }
   };
 
-  /* ── Per-provider test ── */
-  const testProvider = async (provider: string) => {
-    setProviderTesting(provider);
+  const resetPerson = async (person: typeof TEST_PERSONS[0]) => {
+    setResettingPerson(person.name);
     try {
-      const res: any = await apiFetch("/api/admin/test-connections", {
-        method: "POST",
-        body: JSON.stringify({ provider }),
+      await adminResetCustomer({
+        phoneNumber: person.phone,
+        email: (person as any).email,
+        crossTenant: true,
       });
-      const results = res?.data?.results ?? res?.results ?? {};
-      // Merge individual provider result into full test results
-      setTestResults((prev) => ({ ...(prev ?? {}), ...results }));
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert("Success", `${person.name} reset successfully`);
     } catch (err: any) {
-      setTestResults((prev) => ({
-        ...(prev ?? {}),
-        [provider.toLowerCase()]: { ok: false, message: err.message },
-      }));
+      Alert.alert("Error", err.message);
     } finally {
-      setProviderTesting(null);
+      setResettingPerson(null);
     }
   };
 
-  /* ── Register Webhooks ── */
-  const registerWebhooks = () => {
+  const deleteBusiness = () => {
     Alert.alert(
-      "Register Webhooks",
-      "This will register webhook endpoints for all services. Continue?",
+      "Delete Business",
+      "This will permanently delete this business and ALL its data. This cannot be undone. Are you sure?",
       [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Register",
+          text: "Delete Forever",
+          style: "destructive",
           onPress: async () => {
-            setRegisteringWebhooks(true);
-            setWebhookResult(null);
+            setDeletingBusiness(true);
             try {
-              const res: any = await apiFetch("/api/admin/register-webhook", {
-                method: "POST",
-                body: JSON.stringify({ service: "all" }),
+              await apiFetch("/api/admin/tenants", {
+                method: "DELETE",
+                body: JSON.stringify({ tenantId: tenant?.id }),
               });
-              const details = res?.data ?? res ?? {};
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              setWebhookResult({
-                success: true,
-                message: "Webhooks registered successfully",
-                details,
-              });
+              Alert.alert("Deleted", "Business has been deleted");
             } catch (err: any) {
-              setWebhookResult({ success: false, message: err.message });
+              Alert.alert("Error", err.message);
             } finally {
-              setRegisteringWebhooks(false);
+              setDeletingBusiness(false);
             }
           },
         },
@@ -237,147 +350,264 @@ export default function AdminScreen() {
     );
   };
 
-  /* ── Clone VAPI Assistants ── */
-  const cloneVapiAssistants = async () => {
-    setCloningVapi(true);
-    setCloneResult(null);
+  const updateFlowType = async (value: string) => {
+    setFlowType(value);
     try {
-      const res: any = await apiFetch("/api/admin/clone-vapi-assistants", {
-        method: "POST",
-        body: JSON.stringify({
-          vapi_api_key: onboardCreds.vapi_api_key,
-          flow_type: onboardData.flow_type,
-          slug: onboardData.slug,
-          business_name: onboardData.business_name,
-        }),
+      await apiFetch("/api/admin/tenants", {
+        method: "PATCH",
+        body: JSON.stringify({ tenantId: tenant?.id, flow_type: value }),
       });
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setCloneResult({
-        success: true,
-        message: res?.message ?? "VAPI assistants cloned successfully",
-      });
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch (err: any) {
-      setCloneResult({ success: false, message: err.message });
-    } finally {
-      setCloningVapi(false);
+      Alert.alert("Error", err.message);
     }
   };
 
-  /* ── Onboard helpers ── */
-  const submitOnboard = async () => {
-    setOnboardLoading(true);
-    setOnboardResult(null);
+  const updateFollowupConfig = async () => {
     try {
       await apiFetch("/api/admin/tenants", {
-        method: "POST",
-        body: JSON.stringify({ ...onboardData, credentials: onboardCreds }),
+        method: "PATCH",
+        body: JSON.stringify({
+          tenantId: tenant?.id,
+          lead_followup_stages: parseInt(followupStages, 10),
+          lead_followup_delay_hours: parseInt(followupDelay, 10),
+          skip_calls_for_sms_leads: skipCallsForSms,
+        }),
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setOnboardResult({ success: true, message: "Tenant created successfully" });
     } catch (err: any) {
-      setOnboardResult({ success: false, message: err.message });
-    } finally {
-      setOnboardLoading(false);
+      Alert.alert("Error", err.message);
     }
+  };
+
+  const onRefresh = async () => {
+    await Promise.all([
+      settingsQuery.refetch(),
+      teamsQuery.refetch(),
+      activeTab === "events" ? eventsQuery.refetch() : Promise.resolve(),
+      activeTab === "controls" ? usersQuery.refetch() : Promise.resolve(),
+    ]);
   };
 
   if (settingsQuery.isLoading) return <LoadingScreen message="Loading admin..." />;
 
-  const tabs: { key: Tab; label: string }[] = [
-    { key: "controls", label: "Controls" },
-    { key: "settings", label: "Settings" },
-    { key: "cleaners", label: "Cleaners" },
-    { key: "tenant", label: "Info" },
-    { key: "credentials", label: "Credentials" },
-    { key: "onboard", label: "Onboard" },
+  const tabs: { key: Tab; label: string; icon: string }[] = [
+    { key: "controls", label: "Controls", icon: "settings-outline" },
+    { key: "settings", label: "Settings", icon: "business-outline" },
+    { key: "credentials", label: "Creds", icon: "key-outline" },
+    { key: "cleaners", label: "Cleaners", icon: "people-outline" },
+    { key: "events", label: "Events", icon: "list-outline" },
+    { key: "demo", label: "Demo", icon: "flask-outline" },
   ];
 
   return (
     <View style={s.container}>
-      {/* Reset Buttons */}
-      <View style={s.resetRow}>
-        {TEST_PERSONS.map((person) => (
-          <TouchableOpacity
-            key={person.name}
-            onPress={() => resetPerson(person)}
-            disabled={resettingPerson !== null}
-            style={[s.resetBtn, resettingPerson !== null && { opacity: 0.5 }]}
-            activeOpacity={0.7}
-          >
-            {resettingPerson === person.name ? (
-              <ActivityIndicator size="small" color={Theme.red400} />
-            ) : (
-              <Ionicons name="refresh" size={14} color={Theme.red400} />
-            )}
-            <Text style={s.resetBtnText}>
-              {resettingPerson === person.name ? "Resetting..." : `Reset ${person.name}`}
-            </Text>
-          </TouchableOpacity>
-        ))}
+      {/* System toggle header */}
+      <View style={s.headerRow}>
+        <View style={s.headerLeft}>
+          <View style={[s.statusDot, { backgroundColor: systemActive ? Theme.success : Theme.destructive }]} />
+          <Text style={s.headerTitle}>System {systemActive ? "Active" : "Paused"}</Text>
+        </View>
+        <Switch
+          value={systemActive}
+          onValueChange={toggleSystem}
+          trackColor={{ false: "rgba(212,9,36,0.3)", true: "rgba(69,186,80,0.3)" }}
+          thumbColor={systemActive ? Theme.success : Theme.destructive}
+        />
       </View>
 
-      {/* Reset result banner */}
-      {resetResult && (
-        <View style={[s.resultBanner, { borderColor: resetResult.success ? "rgba(69,186,80,0.3)" : "rgba(212,9,36,0.3)", backgroundColor: resetResult.success ? "rgba(69,186,80,0.1)" : "rgba(212,9,36,0.1)" }]}>
-          <Text style={{ color: resetResult.success ? Theme.success : Theme.destructive, fontSize: 13 }}>{resetResult.message}</Text>
+      {/* Setup Progress */}
+      <View style={s.progressContainer}>
+        <View style={s.progressHeader}>
+          <Text style={s.progressLabel}>Setup Progress</Text>
+          <Text style={s.progressPct}>{setupPct}%</Text>
         </View>
-      )}
+        <View style={s.progressBarBg}>
+          <View style={[s.progressBarFill, { width: `${setupPct}%` as any }]} />
+        </View>
+        <View style={s.checklistRow}>
+          {setupChecklist.map((item) => (
+            <View key={item.label} style={s.checklistItem}>
+              <Ionicons
+                name={item.done ? "checkmark-circle" : "ellipse-outline"}
+                size={14}
+                color={item.done ? Theme.success : Theme.mutedForeground}
+              />
+              <Text style={[s.checklistText, item.done && { color: Theme.success }]}>{item.label}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
 
       {/* Tab bar */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.tabBarScroll} contentContainerStyle={s.tabBarContent}>
         {tabs.map((tab) => (
           <TouchableOpacity key={tab.key} onPress={() => setActiveTab(tab.key)} style={[s.tab, activeTab === tab.key && s.tabActive]}>
+            <Ionicons name={tab.icon as any} size={15} color={activeTab === tab.key ? Theme.primary : Theme.mutedForeground} />
             <Text style={[s.tabText, activeTab === tab.key && s.tabTextActive]}>{tab.label}</Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
 
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={s.scrollContent}
-        refreshControl={<RefreshControl refreshing={settingsQuery.isRefetching} onRefresh={onRefresh} tintColor={Theme.primary} />}>
-
-        {/* Controls Tab */}
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={s.scrollContent}
+        refreshControl={<RefreshControl refreshing={settingsQuery.isRefetching} onRefresh={onRefresh} tintColor={Theme.primary} />}
+      >
+        {/* ── Controls Tab ── */}
         {activeTab === "controls" && (
           <View style={s.section}>
+            {/* Integration Status */}
             <GlassCard>
-              <Text style={s.sectionTitle}>System Controls</Text>
+              <Text style={s.sectionTitle}>Integration Status</Text>
+              {INTEGRATIONS.map((integ) => {
+                const status = getIntegrationStatus(integ.key);
+                return (
+                  <View key={integ.key} style={s.integrationRow}>
+                    <View style={s.integrationLeft}>
+                      <Ionicons name={integ.icon} size={20} color={Theme.foreground} />
+                      <View style={{ marginLeft: 12, flex: 1 }}>
+                        <Text style={s.integrationName}>{integ.label}</Text>
+                        <Text style={[s.integrationStatus, { color: statusColor(status) }]}>
+                          {statusLabel(status)}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={s.integrationActions}>
+                      <TouchableOpacity
+                        onPress={() => testConnection(integ.key)}
+                        disabled={providerTesting !== null}
+                        style={s.miniBtn}
+                      >
+                        {providerTesting === integ.key ? (
+                          <ActivityIndicator size="small" color={Theme.primary} />
+                        ) : (
+                          <Text style={s.miniBtnText}>Test</Text>
+                        )}
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => registerWebhook(integ.key)}
+                        disabled={webhookRegistering !== null}
+                        style={[s.miniBtn, { borderColor: Theme.warning }]}
+                      >
+                        {webhookRegistering === integ.key ? (
+                          <ActivityIndicator size="small" color={Theme.warning} />
+                        ) : (
+                          <Ionicons name="link-outline" size={14} color={Theme.warning} />
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })}
+            </GlassCard>
+
+            {/* Workflow Config Toggles */}
+            <GlassCard>
+              <Text style={s.sectionTitle}>Workflow Configuration</Text>
+              {WORKFLOW_TOGGLES.map((toggle) => (
+                <ToggleRow
+                  key={toggle.key}
+                  label={toggle.label}
+                  description={toggle.description}
+                  value={(tenant?.workflow_config as any)?.[toggle.key] ?? false}
+                  onToggle={(v) => toggleTenantField(toggle.key, v)}
+                />
+              ))}
+            </GlassCard>
+
+            {/* Business Flow Type */}
+            <GlassCard>
+              <Text style={s.sectionTitle}>Business Flow Type</Text>
+              {FLOW_TYPES.map((ft) => (
+                <TouchableOpacity
+                  key={ft.value}
+                  onPress={() => updateFlowType(ft.value)}
+                  style={[s.flowTypeCard, flowType === ft.value && s.flowTypeCardActive]}
+                >
+                  <View style={s.flowTypeHeader}>
+                    <Ionicons
+                      name={flowType === ft.value ? "radio-button-on" : "radio-button-off"}
+                      size={20}
+                      color={flowType === ft.value ? Theme.primary : Theme.mutedForeground}
+                    />
+                    <Text style={[s.flowTypeLabel, flowType === ft.value && { color: Theme.primary }]}>
+                      {ft.label}
+                    </Text>
+                  </View>
+                  <Text style={s.flowTypeDesc}>{ft.description}</Text>
+                </TouchableOpacity>
+              ))}
+            </GlassCard>
+
+            {/* Lead Follow-up Config */}
+            <GlassCard>
+              <Text style={s.sectionTitle}>Lead Follow-up Configuration</Text>
+              <View style={s.fieldGroup}>
+                <Text style={s.fieldLabel}>Stages</Text>
+                <TextInput
+                  value={followupStages}
+                  onChangeText={setFollowupStages}
+                  style={s.input}
+                  keyboardType="number-pad"
+                  placeholderTextColor={Theme.mutedForeground}
+                />
+              </View>
+              <View style={s.fieldGroup}>
+                <Text style={s.fieldLabel}>Delay between stages (hours)</Text>
+                <TextInput
+                  value={followupDelay}
+                  onChangeText={setFollowupDelay}
+                  style={s.input}
+                  keyboardType="number-pad"
+                  placeholderTextColor={Theme.mutedForeground}
+                />
+              </View>
               <ToggleRow
-                label="SMS Auto-Response"
-                description="AI responds to incoming messages automatically"
-                value={tenant?.workflow_config?.sms_auto_response_enabled ?? false}
-                onToggle={(v) => toggleTenantField("sms_auto_response_enabled", v)}
+                label="Skip calls for SMS leads"
+                description="Use SMS-only follow-up for leads that came in via text"
+                value={skipCallsForSms}
+                onToggle={setSkipCallsForSms}
               />
-              <ToggleRow
-                label="Business Active"
-                description="When off, all automated systems are paused"
-                value={tenant?.active ?? true}
-                onToggle={(v) => toggleTenantField("active", v)}
-              />
-              <ToggleRow
-                label="Auto Cleaner Assignment"
-                description="Automatically assign cleaners to new jobs"
-                value={tenant?.workflow_config?.cleaner_assignment_auto ?? false}
-                onToggle={(v) => toggleTenantField("cleaner_assignment_auto", v)}
-              />
-              <ToggleRow
-                label="Lead Followup"
-                description={`${tenant?.workflow_config?.lead_followup_stages ?? 0} stages`}
-                value={tenant?.workflow_config?.lead_followup_enabled ?? false}
-                onToggle={(v) => toggleTenantField("lead_followup_enabled", v)}
-              />
-              <ToggleRow
-                label="Require Deposit"
-                description={`${tenant?.workflow_config?.deposit_percentage ?? 0}% of job value`}
-                value={tenant?.workflow_config?.require_deposit ?? false}
-                onToggle={(v) => toggleTenantField("require_deposit", v)}
-              />
+              <TouchableOpacity onPress={updateFollowupConfig} style={s.saveBtn}>
+                <Text style={s.saveBtnText}>Save Follow-up Config</Text>
+              </TouchableOpacity>
+            </GlassCard>
+
+            {/* User Management */}
+            <GlassCard>
+              <Text style={s.sectionTitle}>Users</Text>
+              {usersQuery.isLoading ? (
+                <ActivityIndicator color={Theme.primary} />
+              ) : users.length === 0 ? (
+                <Text style={s.emptyText}>No users found</Text>
+              ) : (
+                users.map((user: any, i: number) => (
+                  <View key={user.id ?? i} style={s.userRow}>
+                    <View style={s.avatar}>
+                      <Text style={s.avatarText}>{(user.display_name || user.username || "?")[0]?.toUpperCase()}</Text>
+                    </View>
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <Text style={s.nameText}>{user.display_name || user.username}</Text>
+                      <Text style={s.subText}>{user.email || user.username}</Text>
+                    </View>
+                    <View style={[s.badge, { backgroundColor: user.is_active ? Theme.successBg : Theme.destructiveBg }]}>
+                      <Text style={{ fontSize: 11, fontWeight: "500", color: user.is_active ? Theme.success : Theme.destructive }}>
+                        {user.role || "user"}
+                      </Text>
+                    </View>
+                  </View>
+                ))
+              )}
             </GlassCard>
           </View>
         )}
 
-        {/* Settings Tab */}
+        {/* ── Settings Tab ── */}
         {activeTab === "settings" && (
           <View style={s.section}>
             <GlassCard>
+              <Text style={s.sectionTitle}>Business Information</Text>
               {[
                 { key: "business_name", label: "Business Name" },
                 { key: "business_phone", label: "Business Phone" },
@@ -407,36 +637,8 @@ export default function AdminScreen() {
                 </TouchableOpacity>
               )}
             </GlassCard>
-          </View>
-        )}
 
-        {/* Cleaners Tab */}
-        {activeTab === "cleaners" && (
-          <View style={s.section}>
-            {cleaners.map((cleaner, i) => (
-              <GlassCard key={cleaner.id || i} style={{ marginBottom: 8 }}>
-                <View style={s.row}>
-                  <View style={s.avatar}><Text style={s.avatarText}>{cleaner.name?.[0]?.toUpperCase()}</Text></View>
-                  <View style={{ marginLeft: 12, flex: 1 }}>
-                    <Text style={s.nameText}>{cleaner.name}</Text>
-                    <Text style={s.subText}>{cleaner.phone || cleaner.email || ""}</Text>
-                  </View>
-                  <View style={{ alignItems: "flex-end" }}>
-                    <View style={[s.badge, { backgroundColor: cleaner.active ? Theme.successBg : Theme.destructiveBg }]}>
-                      <Text style={{ fontSize: 11, fontWeight: "500", color: cleaner.active ? Theme.success : Theme.destructive }}>
-                        {cleaner.active ? "Active" : "Inactive"}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-              </GlassCard>
-            ))}
-          </View>
-        )}
-
-        {/* Info Tab */}
-        {activeTab === "tenant" && (
-          <View style={s.section}>
+            {/* Tenant Info */}
             <GlassCard>
               <Text style={s.sectionTitle}>Tenant Information</Text>
               <InfoRow label="Name" value={tenant?.name} />
@@ -446,336 +648,372 @@ export default function AdminScreen() {
               <InfoRow label="Stripe" value={tenant?.workflow_config?.use_stripe ? "Enabled" : "Disabled"} />
               <InfoRow label="Assignment Mode" value={tenant?.workflow_config?.assignment_mode || "N/A"} />
             </GlassCard>
+
+            {/* Seasonal Campaigns */}
+            <GlassCard>
+              <Text style={s.sectionTitle}>Seasonal Campaigns</Text>
+              {campaigns.length === 0 ? (
+                <Text style={s.emptyText}>No seasonal campaigns configured</Text>
+              ) : (
+                campaigns.map((campaign: any, i: number) => (
+                  <View key={campaign.id ?? i} style={s.campaignRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.nameText}>{campaign.name}</Text>
+                      <Text style={s.subText}>{campaign.description || "No description"}</Text>
+                    </View>
+                    <Switch
+                      value={campaign.enabled ?? false}
+                      onValueChange={(v) => {
+                        setCampaigns((prev) =>
+                          prev.map((c, idx) => (idx === i ? { ...c, enabled: v } : c))
+                        );
+                      }}
+                      trackColor={{ false: Theme.border, true: "rgba(0,145,255,0.3)" }}
+                      thumbColor={campaign.enabled ? Theme.primary : Theme.mutedForeground}
+                    />
+                  </View>
+                ))
+              )}
+              <TouchableOpacity
+                onPress={() => {
+                  setCampaigns((prev) => [
+                    ...prev,
+                    { id: Date.now().toString(), name: "New Campaign", description: "", enabled: false },
+                  ]);
+                }}
+                style={s.outlineBtn}
+              >
+                <Ionicons name="add" size={16} color={Theme.primary} />
+                <Text style={s.outlineBtnText}>Add Campaign</Text>
+              </TouchableOpacity>
+            </GlassCard>
+
+            {/* Danger Zone */}
+            <GlassCard>
+              <Text style={[s.sectionTitle, { color: Theme.destructive }]}>Danger Zone</Text>
+              <TouchableOpacity
+                onPress={deleteBusiness}
+                disabled={deletingBusiness}
+                style={s.dangerBtn}
+              >
+                {deletingBusiness ? (
+                  <ActivityIndicator size="small" color={Theme.destructive} />
+                ) : (
+                  <Ionicons name="trash-outline" size={18} color={Theme.destructive} />
+                )}
+                <Text style={s.dangerBtnText}>Delete Business</Text>
+              </TouchableOpacity>
+            </GlassCard>
           </View>
         )}
 
-        {/* Credentials Tab */}
+        {/* ── Credentials Tab ── */}
         {activeTab === "credentials" && (
           <View style={s.section}>
             {CREDENTIAL_SECTIONS.map((section) => {
               const providerKey = section.provider.toLowerCase();
-              const providerResult = testResults?.[providerKey];
+              const result = testResults[providerKey];
               return (
-              <GlassCard key={section.provider} style={{ marginBottom: 12 }}>
-                <View style={s.providerHeader}>
-                  <Text style={s.sectionTitle}>{section.provider}</Text>
-                  <View style={s.providerHeaderRight}>
-                    {providerResult && (
-                      <Ionicons
-                        name={providerResult.ok ? "checkmark-circle" : "close-circle"}
-                        size={20}
-                        color={providerResult.ok ? Theme.success : Theme.destructive}
-                      />
-                    )}
-                    <TouchableOpacity
-                      onPress={() => testProvider(section.provider)}
-                      disabled={providerTesting !== null}
-                      style={s.providerTestBtn}
-                    >
-                      {providerTesting === section.provider ? (
-                        <ActivityIndicator size="small" color={Theme.primary} />
-                      ) : (
-                        <Text style={s.providerTestBtnText}>Test</Text>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                </View>
-                {providerResult && (
-                  <Text style={{ fontSize: 12, color: providerResult.ok ? Theme.success : Theme.destructive, marginBottom: 8 }}>
-                    {providerResult.message}
-                  </Text>
-                )}
-                {section.fields.map((field) => {
-                  const revealed = revealedFields[field.key];
-                  const currentVal = credentials[field.key] ?? "";
-                  return (
-                    <View key={field.key} style={s.fieldGroup}>
-                      <Text style={s.fieldLabel}>{field.label}</Text>
-                      <View style={s.credRow}>
-                        <TextInput
-                          value={revealed ? currentVal : maskValue(currentVal)}
-                          onChangeText={(v) => setCredentials((p) => ({ ...p, [field.key]: v }))}
-                          editable={revealed}
-                          style={[s.input, { flex: 1 }]}
-                          placeholderTextColor={Theme.mutedForeground}
-                          placeholder={`Enter ${field.label}`}
-                          secureTextEntry={!revealed}
-                          autoCapitalize="none"
-                          autoCorrect={false}
+                <GlassCard key={section.provider} style={{ marginBottom: 4 }}>
+                  <View style={s.providerHeader}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      <Text style={s.sectionTitle}>{section.provider}</Text>
+                      {result && (
+                        <Ionicons
+                          name={result.ok ? "checkmark-circle" : "close-circle"}
+                          size={18}
+                          color={result.ok ? Theme.success : Theme.destructive}
                         />
-                        <TouchableOpacity onPress={() => toggleReveal(field.key)} style={s.credEditBtn}>
-                          <Ionicons
-                            name={revealed ? "eye-off-outline" : "create-outline"}
-                            size={18}
-                            color={Theme.primary}
-                          />
-                        </TouchableOpacity>
-                      </View>
+                      )}
                     </View>
-                  );
-                })}
-              </GlassCard>
+                    <View style={{ flexDirection: "row", gap: 8 }}>
+                      <TouchableOpacity
+                        onPress={() => testConnection(providerKey)}
+                        disabled={providerTesting !== null}
+                        style={s.miniBtn}
+                      >
+                        {providerTesting === providerKey ? (
+                          <ActivityIndicator size="small" color={Theme.primary} />
+                        ) : (
+                          <Text style={s.miniBtnText}>Test</Text>
+                        )}
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => registerWebhook(providerKey)}
+                        disabled={webhookRegistering !== null}
+                        style={[s.miniBtn, { borderColor: Theme.warning }]}
+                      >
+                        {webhookRegistering === providerKey ? (
+                          <ActivityIndicator size="small" color={Theme.warning} />
+                        ) : (
+                          <Text style={[s.miniBtnText, { color: Theme.warning }]}>Hook</Text>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                  {result && (
+                    <Text style={{ fontSize: 12, color: result.ok ? Theme.success : Theme.destructive, marginBottom: 4 }}>
+                      {result.message}
+                    </Text>
+                  )}
+                  {section.fields.map((field) => {
+                    const revealed = revealedFields[field.key];
+                    const currentVal = credentials[field.key] ?? "";
+                    return (
+                      <View key={field.key} style={s.fieldGroup}>
+                        <Text style={s.fieldLabel}>{field.label}</Text>
+                        <View style={s.credRow}>
+                          <TextInput
+                            value={revealed ? currentVal : maskValue(currentVal)}
+                            onChangeText={(v) => setCredentials((p) => ({ ...p, [field.key]: v }))}
+                            editable={revealed}
+                            style={[s.input, { flex: 1 }]}
+                            placeholderTextColor={Theme.mutedForeground}
+                            placeholder={`Enter ${field.label}`}
+                            secureTextEntry={!revealed}
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                          />
+                          <TouchableOpacity
+                            onPress={() => setRevealedFields((p) => ({ ...p, [field.key]: !p[field.key] }))}
+                            style={s.credIconBtn}
+                          >
+                            <Ionicons name={revealed ? "eye-off-outline" : "create-outline"} size={18} color={Theme.primary} />
+                          </TouchableOpacity>
+                          {currentVal.length > 0 && (
+                            <TouchableOpacity
+                              onPress={() => copyToClipboard(currentVal, field.label)}
+                              style={s.credIconBtn}
+                            >
+                              <Ionicons name="copy-outline" size={18} color={Theme.mutedForeground} />
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      </View>
+                    );
+                  })}
+                </GlassCard>
               );
             })}
 
-            {credResult && (
-              <View style={[s.resultBanner, { borderColor: credResult.success ? "rgba(69,186,80,0.3)" : "rgba(212,9,36,0.3)", backgroundColor: credResult.success ? "rgba(69,186,80,0.1)" : "rgba(212,9,36,0.1)" }]}>
-                <Text style={{ color: credResult.success ? Theme.success : Theme.destructive, fontSize: 13 }}>{credResult.message}</Text>
-              </View>
-            )}
-
-            {testResults && (
-              <GlassCard style={{ marginBottom: 12 }}>
-                <Text style={s.sectionTitle}>Connection Test Results</Text>
-                {Object.entries(testResults).map(([key, result]) => (
-                  <View key={key} style={s.testResultRow}>
-                    <Ionicons
-                      name={result.ok ? "checkmark-circle" : "close-circle"}
-                      size={18}
-                      color={result.ok ? Theme.success : Theme.destructive}
-                    />
-                    <Text style={[s.testResultText, { color: result.ok ? Theme.success : Theme.destructive }]}>
-                      {key}: {result.message}
-                    </Text>
-                  </View>
-                ))}
-              </GlassCard>
-            )}
-
-            <View style={s.credBtnRow}>
-              <TouchableOpacity onPress={saveCredentials} disabled={credSaving} style={[s.saveBtn, { flex: 1 }]}>
-                {credSaving ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={s.saveBtnText}>Save Credentials</Text>
-                )}
-              </TouchableOpacity>
-              <TouchableOpacity onPress={testConnections} disabled={credTesting} style={[s.testBtn, { flex: 1 }]}>
-                {credTesting ? (
-                  <ActivityIndicator size="small" color={Theme.primary} />
-                ) : (
-                  <Text style={s.testBtnText}>Test Connections</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-
-            {/* Register Webhooks */}
-            <TouchableOpacity
-              onPress={registerWebhooks}
-              disabled={registeringWebhooks}
-              style={[s.webhookBtn, registeringWebhooks && { opacity: 0.5 }]}
-            >
-              {registeringWebhooks ? (
-                <ActivityIndicator size="small" color={Theme.warning} />
+            <TouchableOpacity onPress={saveCredentials} disabled={credSaving} style={s.saveBtn}>
+              {credSaving ? (
+                <ActivityIndicator size="small" color="#fff" />
               ) : (
-                <Ionicons name="link-outline" size={18} color={Theme.warning} />
+                <Text style={s.saveBtnText}>Save All Credentials</Text>
               )}
-              <Text style={s.webhookBtnText}>Register Webhooks</Text>
             </TouchableOpacity>
+          </View>
+        )}
 
-            {webhookResult && (
-              <GlassCard style={{ marginTop: 8 }}>
-                <View style={s.testResultRow}>
-                  <Ionicons
-                    name={webhookResult.success ? "checkmark-circle" : "close-circle"}
-                    size={18}
-                    color={webhookResult.success ? Theme.success : Theme.destructive}
-                  />
-                  <Text style={[s.testResultText, { color: webhookResult.success ? Theme.success : Theme.destructive }]}>
-                    {webhookResult.message}
-                  </Text>
-                </View>
-                {webhookResult.details && (
-                  <View style={{ marginTop: 8 }}>
-                    {Object.entries(webhookResult.details).map(([service, info]: [string, any]) => {
-                      if (typeof info !== "object" || info === null) return null;
-                      return (
-                        <View key={service} style={s.webhookHealthRow}>
-                          <Text style={s.webhookServiceName}>{service}</Text>
-                          {info.registered_at && (
-                            <Text style={s.webhookHealthDetail}>
-                              Registered: {new Date(info.registered_at).toLocaleDateString()}
-                            </Text>
-                          )}
-                          {info.error_count != null && (
-                            <Text style={[s.webhookHealthDetail, info.error_count > 0 && { color: Theme.destructive }]}>
-                              Errors: {info.error_count}
-                            </Text>
-                          )}
-                        </View>
-                      );
-                    })}
-                  </View>
-                )}
+        {/* ── Cleaners Tab ── */}
+        {activeTab === "cleaners" && (
+          <View style={s.section}>
+            {teamsQuery.isLoading ? (
+              <ActivityIndicator color={Theme.primary} style={{ marginTop: 20 }} />
+            ) : cleaners.length === 0 ? (
+              <GlassCard>
+                <Text style={s.emptyText}>No cleaners found</Text>
               </GlassCard>
+            ) : (
+              cleaners.map((cleaner, i) => (
+                <GlassCard key={cleaner.id || i} style={{ marginBottom: 4 }}>
+                  <View style={s.row}>
+                    <View style={s.avatar}>
+                      <Text style={s.avatarText}>{cleaner.name?.[0]?.toUpperCase()}</Text>
+                    </View>
+                    <View style={{ marginLeft: 12, flex: 1 }}>
+                      <Text style={s.nameText}>{cleaner.name}</Text>
+                      <Text style={s.subText}>{cleaner.phone || cleaner.email || ""}</Text>
+                    </View>
+                    <View style={{ alignItems: "flex-end", gap: 6 }}>
+                      <View style={[s.badge, { backgroundColor: cleaner.active ? Theme.successBg : Theme.destructiveBg }]}>
+                        <Text style={{ fontSize: 11, fontWeight: "500", color: cleaner.active ? Theme.success : Theme.destructive }}>
+                          {cleaner.active ? "Active" : "Inactive"}
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        onPress={() => {
+                          Alert.alert("Send Credentials", `Send login credentials to ${cleaner.name}?`, [
+                            { text: "Cancel", style: "cancel" },
+                            {
+                              text: "Send",
+                              onPress: async () => {
+                                try {
+                                  await sendEmployeeCredentials(typeof cleaner.id === "string" ? parseInt(cleaner.id, 10) : Number(cleaner.id ?? 0));
+                                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                                  Alert.alert("Sent", "Credentials sent");
+                                } catch (err: any) {
+                                  Alert.alert("Error", err.message);
+                                }
+                              },
+                            },
+                          ]);
+                        }}
+                        style={s.miniBtn}
+                      >
+                        <Ionicons name="mail-outline" size={14} color={Theme.primary} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </GlassCard>
+              ))
             )}
           </View>
         )}
 
-        {/* Onboard Tab */}
-        {activeTab === "onboard" && (
+        {/* ── Events Tab (Audit Log) ── */}
+        {activeTab === "events" && (
           <View style={s.section}>
-            {/* Step indicators */}
-            <View style={s.stepRow}>
-              {[1, 2, 3].map((step) => (
-                <View key={step} style={[s.stepDot, onboardStep >= step && s.stepDotActive]}>
-                  <Text style={[s.stepDotText, onboardStep >= step && s.stepDotTextActive]}>{step}</Text>
-                </View>
-              ))}
-            </View>
-
-            {onboardStep === 1 && (
-              <GlassCard>
-                <Text style={s.sectionTitle}>Business Details</Text>
-                {[
-                  { key: "business_name", label: "Business Name", placeholder: "Acme Cleaning Co." },
-                  { key: "slug", label: "Slug", placeholder: "acme-cleaning" },
-                  { key: "password", label: "Password", placeholder: "Admin password", secure: true },
-                ].map((field) => (
-                  <View key={field.key} style={s.fieldGroup}>
-                    <Text style={s.fieldLabel}>{field.label}</Text>
-                    <TextInput
-                      value={onboardData[field.key] ?? ""}
-                      onChangeText={(v) => setOnboardData((p) => ({ ...p, [field.key]: v }))}
-                      style={s.input}
-                      placeholder={field.placeholder}
-                      placeholderTextColor={Theme.mutedForeground}
-                      secureTextEntry={(field as any).secure ?? false}
-                      autoCapitalize="none"
-                    />
-                  </View>
+            {/* Source filter */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                {EVENT_SOURCES.map((src) => (
+                  <TouchableOpacity
+                    key={src}
+                    onPress={() => setEventSource(src)}
+                    style={[s.filterChip, eventSource === src && s.filterChipActive]}
+                  >
+                    <Text style={[s.filterChipText, eventSource === src && s.filterChipTextActive]}>
+                      {src.charAt(0).toUpperCase() + src.slice(1)}
+                    </Text>
+                  </TouchableOpacity>
                 ))}
-                <View style={s.fieldGroup}>
-                  <Text style={s.fieldLabel}>Flow Type</Text>
-                  <View style={s.flowRow}>
-                    {FLOW_OPTIONS.map((opt) => (
-                      <TouchableOpacity
-                        key={opt.value}
-                        onPress={() => setOnboardData((p) => ({ ...p, flow_type: opt.value }))}
-                        style={[s.flowChip, onboardData.flow_type === opt.value && s.flowChipActive]}
-                      >
-                        <Text style={[s.flowChipText, onboardData.flow_type === opt.value && s.flowChipTextActive]}>
-                          {opt.label}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
-                <TouchableOpacity
-                  onPress={() => setOnboardStep(2)}
-                  disabled={!onboardData.business_name || !onboardData.slug || !onboardData.password}
-                  style={[s.saveBtn, (!onboardData.business_name || !onboardData.slug || !onboardData.password) && { opacity: 0.5 }]}
-                >
-                  <Text style={s.saveBtnText}>Next</Text>
-                </TouchableOpacity>
-              </GlassCard>
-            )}
+              </View>
+            </ScrollView>
 
-            {onboardStep === 2 && (
+            {eventsQuery.isLoading ? (
+              <ActivityIndicator color={Theme.primary} style={{ marginTop: 20 }} />
+            ) : events.length === 0 ? (
               <GlassCard>
-                <Text style={s.sectionTitle}>API Credentials</Text>
-                {CREDENTIAL_SECTIONS.map((section) => (
-                  <View key={section.provider} style={{ marginBottom: 12 }}>
-                    <Text style={[s.fieldLabel, { fontSize: 14, fontWeight: "600", marginBottom: 8 }]}>{section.provider}</Text>
-                    {section.fields.map((field) => (
-                      <View key={field.key} style={s.fieldGroup}>
-                        <Text style={s.fieldLabel}>{field.label}</Text>
-                        <TextInput
-                          value={onboardCreds[field.key] ?? ""}
-                          onChangeText={(v) => setOnboardCreds((p) => ({ ...p, [field.key]: v }))}
-                          style={s.input}
-                          placeholder={`Enter ${field.label}`}
-                          placeholderTextColor={Theme.mutedForeground}
-                          secureTextEntry
-                          autoCapitalize="none"
-                          autoCorrect={false}
-                        />
+                <Text style={s.emptyText}>No system events found</Text>
+              </GlassCard>
+            ) : (
+              events.map((event: any, i: number) => {
+                const isExpanded = expandedEvent === (event.id ?? String(i));
+                return (
+                  <TouchableOpacity
+                    key={event.id ?? i}
+                    onPress={() => setExpandedEvent(isExpanded ? null : (event.id ?? String(i)))}
+                    activeOpacity={0.7}
+                  >
+                    <GlassCard style={{ marginBottom: 4 }}>
+                      <View style={s.eventHeader}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={s.eventType}>{event.event_type || event.type || "event"}</Text>
+                          <Text style={s.eventTime}>
+                            {event.created_at ? new Date(event.created_at).toLocaleString() : ""}
+                          </Text>
+                        </View>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                          {event.source && (
+                            <View style={s.sourceChip}>
+                              <Text style={s.sourceChipText}>{event.source}</Text>
+                            </View>
+                          )}
+                          <Ionicons
+                            name={isExpanded ? "chevron-up" : "chevron-down"}
+                            size={18}
+                            color={Theme.mutedForeground}
+                          />
+                        </View>
                       </View>
-                    ))}
-                  </View>
-                ))}
-                {/* Clone VAPI Assistants */}
-                <TouchableOpacity
-                  onPress={cloneVapiAssistants}
-                  disabled={cloningVapi || !onboardCreds.vapi_api_key}
-                  style={[s.cloneVapiBtn, (!onboardCreds.vapi_api_key || cloningVapi) && { opacity: 0.5 }]}
-                >
-                  {cloningVapi ? (
-                    <ActivityIndicator size="small" color={Theme.info} />
-                  ) : (
-                    <Ionicons name="copy-outline" size={16} color={Theme.info} />
-                  )}
-                  <Text style={s.cloneVapiBtnText}>Clone VAPI Assistants</Text>
-                </TouchableOpacity>
-                {!onboardCreds.vapi_api_key && (
-                  <Text style={{ fontSize: 11, color: Theme.mutedForeground, marginTop: 4 }}>
-                    Enter a VAPI API Key above to enable cloning
-                  </Text>
-                )}
-                {cloneResult && (
-                  <View style={[s.resultBanner, { marginTop: 8, borderColor: cloneResult.success ? "rgba(69,186,80,0.3)" : "rgba(212,9,36,0.3)", backgroundColor: cloneResult.success ? "rgba(69,186,80,0.1)" : "rgba(212,9,36,0.1)" }]}>
-                    <Text style={{ color: cloneResult.success ? Theme.success : Theme.destructive, fontSize: 13 }}>{cloneResult.message}</Text>
-                  </View>
-                )}
-
-                <View style={[s.credBtnRow, { marginTop: 12 }]}>
-                  <TouchableOpacity onPress={() => setOnboardStep(1)} style={[s.testBtn, { flex: 1 }]}>
-                    <Text style={s.testBtnText}>Back</Text>
+                      {event.message && (
+                        <Text style={s.eventMessage} numberOfLines={isExpanded ? undefined : 2}>
+                          {event.message}
+                        </Text>
+                      )}
+                      {isExpanded && event.metadata && (
+                        <View style={s.metadataBox}>
+                          <Text style={s.metadataText}>
+                            {typeof event.metadata === "string"
+                              ? event.metadata
+                              : JSON.stringify(event.metadata, null, 2)}
+                          </Text>
+                        </View>
+                      )}
+                    </GlassCard>
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={() => setOnboardStep(3)} style={[s.saveBtn, { flex: 1 }]}>
-                    <Text style={s.saveBtnText}>Next</Text>
-                  </TouchableOpacity>
-                </View>
-              </GlassCard>
+                );
+              })
             )}
+          </View>
+        )}
 
-            {onboardStep === 3 && (
-              <GlassCard>
-                <Text style={s.sectionTitle}>Review & Create</Text>
-                <InfoRow label="Business Name" value={onboardData.business_name} />
-                <InfoRow label="Slug" value={onboardData.slug} />
-                <InfoRow label="Flow Type" value={onboardData.flow_type} />
-                <View style={{ marginTop: 8 }}>
-                  <Text style={[s.fieldLabel, { fontSize: 14, fontWeight: "600", marginBottom: 4 }]}>Credentials</Text>
-                  {CREDENTIAL_SECTIONS.map((section) =>
-                    section.fields.map((field) =>
-                      onboardCreds[field.key] ? (
-                        <InfoRow
-                          key={field.key}
-                          label={`${section.provider} ${field.label}`}
-                          value={"\u2022\u2022\u2022\u2022" + (onboardCreds[field.key]?.slice(-4) ?? "")}
-                        />
-                      ) : null
-                    )
-                  )}
-                </View>
-
-                {onboardResult && (
-                  <View style={[s.resultBanner, { marginTop: 12, borderColor: onboardResult.success ? "rgba(69,186,80,0.3)" : "rgba(212,9,36,0.3)", backgroundColor: onboardResult.success ? "rgba(69,186,80,0.1)" : "rgba(212,9,36,0.1)" }]}>
-                    <Text style={{ color: onboardResult.success ? Theme.success : Theme.destructive, fontSize: 13 }}>{onboardResult.message}</Text>
-                  </View>
-                )}
-
-                <View style={[s.credBtnRow, { marginTop: 12 }]}>
-                  <TouchableOpacity onPress={() => setOnboardStep(2)} style={[s.testBtn, { flex: 1 }]}>
-                    <Text style={s.testBtnText}>Back</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={submitOnboard} disabled={onboardLoading} style={[s.saveBtn, { flex: 1 }]}>
-                    {onboardLoading ? (
-                      <ActivityIndicator size="small" color="#fff" />
+        {/* ── Demo Tab ── */}
+        {activeTab === "demo" && (
+          <View style={s.section}>
+            {/* Demo Data Generator */}
+            <GlassCard>
+              <Text style={s.sectionTitle}>Demo Data Generator</Text>
+              <View style={s.demoGrid}>
+                {DEMO_ACTIONS.map((da) => (
+                  <TouchableOpacity
+                    key={da.action}
+                    onPress={() => runSeedAction(da.action)}
+                    disabled={seedingAction !== null}
+                    style={[s.demoBtn, seedingAction !== null && { opacity: 0.5 }]}
+                  >
+                    {seedingAction === da.action ? (
+                      <ActivityIndicator size="small" color={Theme.primary} />
                     ) : (
-                      <Text style={s.saveBtnText}>Create Tenant</Text>
+                      <Ionicons name={da.icon as any} size={20} color={Theme.primary} />
                     )}
+                    <Text style={s.demoBtnText}>{da.label}</Text>
                   </TouchableOpacity>
-                </View>
-              </GlassCard>
-            )}
+                ))}
+              </View>
+            </GlassCard>
+
+            {/* Test Person Reset */}
+            <GlassCard>
+              <Text style={s.sectionTitle}>Reset Test Persons</Text>
+              <View style={s.resetGrid}>
+                {TEST_PERSONS.map((person) => (
+                  <TouchableOpacity
+                    key={person.name}
+                    onPress={() => resetPerson(person)}
+                    disabled={resettingPerson !== null}
+                    style={[s.resetBtn, resettingPerson !== null && { opacity: 0.5 }]}
+                    activeOpacity={0.7}
+                  >
+                    {resettingPerson === person.name ? (
+                      <ActivityIndicator size="small" color={Theme.red400} />
+                    ) : (
+                      <Ionicons name="refresh" size={16} color={Theme.red400} />
+                    )}
+                    <Text style={s.resetBtnText}>
+                      {resettingPerson === person.name ? "Resetting..." : `Reset ${person.name}`}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </GlassCard>
+
+            {/* Danger Zone */}
+            <GlassCard>
+              <Text style={[s.sectionTitle, { color: Theme.destructive }]}>Danger Zone</Text>
+              <TouchableOpacity
+                onPress={deleteBusiness}
+                disabled={deletingBusiness}
+                style={s.dangerBtn}
+              >
+                {deletingBusiness ? (
+                  <ActivityIndicator size="small" color={Theme.destructive} />
+                ) : (
+                  <Ionicons name="trash-outline" size={18} color={Theme.destructive} />
+                )}
+                <Text style={s.dangerBtnText}>Delete Business</Text>
+              </TouchableOpacity>
+            </GlassCard>
           </View>
         )}
       </ScrollView>
     </View>
   );
 }
+
+/* ── Sub-components ── */
 
 function ToggleRow({ label, description, value, onToggle }: {
   label: string; description: string; value: boolean; onToggle: (v: boolean) => void;
@@ -805,82 +1043,174 @@ function InfoRow({ label, value }: { label: string; value?: string | null }) {
   );
 }
 
+/* ── Styles ── */
+
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: Theme.background },
-  resetRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingHorizontal: 16, paddingTop: 4, paddingBottom: 8 },
-  resetBtn: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 6,
-    borderWidth: 1, borderColor: "rgba(212,9,36,0.3)", backgroundColor: "rgba(212,9,36,0.1)",
+
+  /* Header / system toggle */
+  headerRow: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 16, paddingVertical: 10,
+    borderBottomWidth: 1, borderBottomColor: Theme.border,
   },
-  resetBtnText: { fontSize: 12, fontWeight: "500", color: Theme.red400 },
-  resultBanner: {
-    marginHorizontal: 16, marginBottom: 8, paddingHorizontal: 12, paddingVertical: 10,
-    borderRadius: 8, borderWidth: 1,
-  },
+  headerLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
+  headerTitle: { fontSize: 16, fontWeight: "600", color: Theme.foreground },
+  statusDot: { width: 10, height: 10, borderRadius: 5 },
+
+  /* Setup progress */
+  progressContainer: { paddingHorizontal: 16, paddingVertical: 10 },
+  progressHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 6 },
+  progressLabel: { fontSize: 13, fontWeight: "500", color: Theme.mutedForeground },
+  progressPct: { fontSize: 13, fontWeight: "600", color: Theme.primary },
+  progressBarBg: { height: 6, borderRadius: 3, backgroundColor: Theme.muted, overflow: "hidden" },
+  progressBarFill: { height: 6, borderRadius: 3, backgroundColor: Theme.primary },
+  checklistRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 },
+  checklistItem: { flexDirection: "row", alignItems: "center", gap: 4 },
+  checklistText: { fontSize: 11, color: Theme.mutedForeground },
+
+  /* Tab bar */
   tabBarScroll: { flexGrow: 0, marginHorizontal: 16, marginBottom: 12 },
   tabBarContent: { borderRadius: 8, backgroundColor: Theme.muted, padding: 4, flexDirection: "row" },
-  tab: { paddingHorizontal: 14, alignItems: "center", borderRadius: 6, paddingVertical: 10 },
+  tab: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, borderRadius: 6, paddingVertical: 9 },
   tabActive: { backgroundColor: Theme.card },
   tabText: { fontSize: 13, fontWeight: "500", color: Theme.mutedForeground },
   tabTextActive: { color: Theme.primary },
-  scrollContent: { paddingBottom: 32 },
-  section: { paddingHorizontal: 16, gap: 8 },
-  sectionTitle: { fontSize: 17, fontWeight: "600", color: Theme.foreground, marginBottom: 8 },
-  fieldGroup: { marginBottom: 12 },
+
+  /* Scroll */
+  scrollContent: { paddingBottom: 40 },
+  section: { paddingHorizontal: 16, gap: 12 },
+  sectionTitle: { fontSize: 17, fontWeight: "600", color: Theme.foreground, marginBottom: 4 },
+
+  /* Integration rows */
+  integrationRow: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)",
+  },
+  integrationLeft: { flexDirection: "row", alignItems: "center", flex: 1 },
+  integrationName: { fontSize: 14, fontWeight: "500", color: Theme.foreground },
+  integrationStatus: { fontSize: 12, marginTop: 1 },
+  integrationActions: { flexDirection: "row", gap: 8 },
+
+  /* Mini buttons */
+  miniBtn: {
+    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6,
+    borderWidth: 1, borderColor: Theme.primary, alignItems: "center", justifyContent: "center",
+    minWidth: 44,
+  },
+  miniBtnText: { fontSize: 12, fontWeight: "600", color: Theme.primary },
+
+  /* Flow type cards */
+  flowTypeCard: {
+    padding: 12, borderRadius: 8, borderWidth: 1,
+    borderColor: Theme.border, backgroundColor: Theme.muted, marginBottom: 8,
+  },
+  flowTypeCardActive: { borderColor: Theme.primary, backgroundColor: "rgba(0,145,255,0.08)" },
+  flowTypeHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 4 },
+  flowTypeLabel: { fontSize: 15, fontWeight: "600", color: Theme.foreground },
+  flowTypeDesc: { fontSize: 12, color: Theme.mutedForeground, marginLeft: 30 },
+
+  /* Fields */
+  fieldGroup: { marginBottom: 10 },
   fieldLabel: { marginBottom: 4, fontSize: 13, fontWeight: "500", color: Theme.mutedForeground },
-  input: { borderRadius: 8, borderWidth: 1, borderColor: Theme.border, backgroundColor: Theme.muted, paddingHorizontal: 12, paddingVertical: 10, color: Theme.foreground, fontSize: 15 },
-  saveBtn: { borderRadius: 8, backgroundColor: Theme.primary, paddingVertical: 12, alignItems: "center", marginTop: 8 },
+  input: {
+    borderRadius: 8, borderWidth: 1, borderColor: Theme.border,
+    backgroundColor: Theme.muted, paddingHorizontal: 12, paddingVertical: 10,
+    color: Theme.foreground, fontSize: 15,
+  },
+
+  /* Buttons */
+  saveBtn: { borderRadius: 8, backgroundColor: Theme.primary, paddingVertical: 12, alignItems: "center", marginTop: 4 },
   saveBtnText: { color: "#fff", fontWeight: "600", fontSize: 14 },
-  testBtn: { borderRadius: 8, borderWidth: 1, borderColor: Theme.primary, paddingVertical: 12, alignItems: "center", marginTop: 8 },
-  testBtnText: { color: Theme.primary, fontWeight: "600", fontSize: 14 },
+  outlineBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+    borderRadius: 8, borderWidth: 1, borderColor: Theme.primary,
+    paddingVertical: 10, marginTop: 4,
+  },
+  outlineBtnText: { fontSize: 14, fontWeight: "600", color: Theme.primary },
+  dangerBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    borderRadius: 8, borderWidth: 1, borderColor: "rgba(212,9,36,0.4)",
+    backgroundColor: "rgba(212,9,36,0.08)", paddingVertical: 12,
+  },
+  dangerBtnText: { fontSize: 14, fontWeight: "600", color: Theme.destructive },
+
+  /* Credentials */
+  providerHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
+  credRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  credIconBtn: { padding: 8, borderRadius: 8, backgroundColor: Theme.muted },
+
+  /* Toggles */
+  toggleRow: {
+    flexDirection: "row", alignItems: "center", paddingVertical: 10,
+    borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)",
+  },
+  toggleLabel: { fontSize: 14, fontWeight: "500", color: Theme.foreground },
+  toggleDesc: { fontSize: 12, color: Theme.mutedForeground, marginTop: 2 },
+
+  /* Info rows */
+  infoRow: {
+    flexDirection: "row", justifyContent: "space-between", paddingVertical: 10,
+    borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)",
+  },
+
+  /* Common */
   row: { flexDirection: "row", alignItems: "center" },
   avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: Theme.primaryMuted, alignItems: "center", justifyContent: "center" },
   avatarText: { fontWeight: "600", color: Theme.primaryLight },
   nameText: { fontWeight: "500", color: Theme.foreground },
   subText: { fontSize: 13, color: Theme.mutedForeground },
   badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
-  toggleRow: { flexDirection: "row", alignItems: "center", paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" },
-  toggleLabel: { fontSize: 14, fontWeight: "500", color: Theme.foreground },
-  toggleDesc: { fontSize: 12, color: Theme.mutedForeground, marginTop: 2 },
-  infoRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" },
-  credRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  credEditBtn: { padding: 8, borderRadius: 8, backgroundColor: Theme.muted },
-  credBtnRow: { flexDirection: "row", gap: 12, marginTop: 4 },
-  testResultRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 6 },
-  testResultText: { fontSize: 13, fontWeight: "500" },
-  stepRow: { flexDirection: "row", justifyContent: "center", gap: 16, marginBottom: 12 },
-  stepDot: { width: 32, height: 32, borderRadius: 16, backgroundColor: Theme.muted, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: Theme.border },
-  stepDotActive: { backgroundColor: Theme.primary, borderColor: Theme.primary },
-  stepDotText: { fontSize: 14, fontWeight: "600", color: Theme.mutedForeground },
-  stepDotTextActive: { color: "#fff" },
-  flowRow: { flexDirection: "row", gap: 8 },
-  flowChip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: Theme.border, backgroundColor: Theme.muted },
-  flowChipActive: { borderColor: Theme.primary, backgroundColor: "rgba(0,145,255,0.15)" },
-  flowChipText: { fontSize: 13, fontWeight: "500", color: Theme.mutedForeground },
-  flowChipTextActive: { color: Theme.primary },
-  /* ── Provider header ── */
-  providerHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
-  providerHeaderRight: { flexDirection: "row", alignItems: "center", gap: 8 },
-  providerTestBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, borderWidth: 1, borderColor: Theme.primary, minWidth: 50, alignItems: "center" },
-  providerTestBtnText: { fontSize: 12, fontWeight: "600", color: Theme.primary },
-  /* ── Webhook ── */
-  webhookBtn: {
-    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-    marginTop: 12, borderRadius: 8, borderWidth: 1,
-    borderColor: "rgba(245,158,11,0.4)", backgroundColor: "rgba(245,158,11,0.1)",
-    paddingVertical: 12,
+  emptyText: { fontSize: 14, color: Theme.mutedForeground, textAlign: "center", paddingVertical: 16 },
+
+  /* Users */
+  userRow: {
+    flexDirection: "row", alignItems: "center",
+    paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)",
   },
-  webhookBtnText: { fontSize: 14, fontWeight: "600", color: Theme.warning },
-  webhookHealthRow: { paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" },
-  webhookServiceName: { fontSize: 13, fontWeight: "600", color: Theme.foreground, textTransform: "capitalize" },
-  webhookHealthDetail: { fontSize: 12, color: Theme.mutedForeground, marginTop: 2 },
-  /* ── Clone VAPI ── */
-  cloneVapiBtn: {
-    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-    marginTop: 12, borderRadius: 8, borderWidth: 1,
-    borderColor: "rgba(59,130,246,0.4)", backgroundColor: "rgba(59,130,246,0.1)",
-    paddingVertical: 12,
+
+  /* Campaigns */
+  campaignRow: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)",
   },
-  cloneVapiBtnText: { fontSize: 14, fontWeight: "600", color: Theme.info },
+
+  /* Events */
+  filterChip: {
+    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8,
+    borderWidth: 1, borderColor: Theme.border, backgroundColor: Theme.muted,
+  },
+  filterChipActive: { borderColor: Theme.primary, backgroundColor: "rgba(0,145,255,0.15)" },
+  filterChipText: { fontSize: 13, fontWeight: "500", color: Theme.mutedForeground },
+  filterChipTextActive: { color: Theme.primary },
+  eventHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  eventType: { fontSize: 14, fontWeight: "600", color: Theme.foreground },
+  eventTime: { fontSize: 12, color: Theme.mutedForeground, marginTop: 2 },
+  eventMessage: { fontSize: 13, color: Theme.mutedForeground, marginTop: 4 },
+  sourceChip: {
+    paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6,
+    backgroundColor: Theme.primaryMuted,
+  },
+  sourceChipText: { fontSize: 11, fontWeight: "500", color: Theme.primaryLight },
+  metadataBox: {
+    marginTop: 8, padding: 10, borderRadius: 6,
+    backgroundColor: Theme.muted, borderWidth: 1, borderColor: Theme.border,
+  },
+  metadataText: { fontSize: 12, color: Theme.mutedForeground, fontFamily: "monospace" },
+
+  /* Demo */
+  demoGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  demoBtn: {
+    flexDirection: "column", alignItems: "center", justifyContent: "center",
+    width: "30%" as any, paddingVertical: 16, borderRadius: 10,
+    borderWidth: 1, borderColor: Theme.border, backgroundColor: Theme.muted, gap: 6,
+  },
+  demoBtnText: { fontSize: 11, fontWeight: "500", color: Theme.foreground, textAlign: "center" },
+  resetGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  resetBtn: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8,
+    borderWidth: 1, borderColor: "rgba(212,9,36,0.3)", backgroundColor: "rgba(212,9,36,0.08)",
+  },
+  resetBtnText: { fontSize: 13, fontWeight: "500", color: Theme.red400 },
 });

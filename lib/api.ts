@@ -397,4 +397,266 @@ export async function sendInvoice(data: Record<string, unknown>) {
   return apiFetch("/api/actions/send-invoice", { method: "POST", body: JSON.stringify(data) });
 }
 
-export async function fetchCalls() { return apiFetch("/api/calls"); }
+export async function fetchCalls(params?: Record<string, string>) {
+  const query = params ? "?" + new URLSearchParams(params).toString() : "";
+  return apiFetch(`/api/calls${query}`);
+}
+
+// ===== INSIGHTS V2 =====
+export async function fetchInsightsV2(range?: string) {
+  return apiFetch(`/api/actions/insights-v2${range ? `?range=${range}` : ""}`);
+}
+export async function fetchInsightsLeads(range?: string) {
+  return apiFetch(`/api/actions/insights/leads${range ? `?range=${range}` : ""}`);
+}
+export async function fetchInsightsFunnel(range?: string) {
+  return apiFetch(`/api/actions/insights/funnel${range ? `?range=${range}` : ""}`);
+}
+export async function fetchInsightsCrews(range?: string) {
+  return apiFetch(`/api/actions/insights/crews${range ? `?range=${range}` : ""}`);
+}
+export async function fetchInsightsPricing(range?: string) {
+  return apiFetch(`/api/actions/insights/pricing${range ? `?range=${range}` : ""}`);
+}
+export async function fetchInsightsRetention(range?: string) {
+  return apiFetch(`/api/actions/insights/retention${range ? `?range=${range}` : ""}`);
+}
+export async function fetchInsightsRevenue(range?: string) {
+  return apiFetch(`/api/insights/revenue${range ? `?range=${range}` : ""}`);
+}
+
+// ===== SEARCH (server-side) =====
+export async function serverSearch(query: string) {
+  return apiFetch<{ results: any[] }>(`/api/search?q=${encodeURIComponent(query)}`);
+}
+
+// ===== NOTIFICATIONS =====
+export async function fetchNotifications() {
+  return apiFetch("/api/notifications");
+}
+
+// ===== OVERVIEW EXTRAS =====
+export async function fetchLeadSources() {
+  return apiFetch("/api/overview/lead-sources");
+}
+export async function fetchCallTasks() {
+  return apiFetch("/api/call-tasks");
+}
+export async function fetchSystemEvents(params?: Record<string, string>) {
+  const query = params ? "?" + new URLSearchParams(params).toString() : "";
+  return apiFetch(`/api/system-events${query}`);
+}
+
+// ===== ASSISTANT CONVERSATIONS =====
+export async function fetchAssistantConversations() {
+  return apiFetch("/api/assistant/conversations");
+}
+export async function fetchAssistantConversation(id: string) {
+  return apiFetch(`/api/assistant/conversations/${id}`);
+}
+export async function createAssistantConversation() {
+  return apiFetch("/api/assistant/conversations", { method: "POST", body: JSON.stringify({}) });
+}
+export async function deleteAssistantConversation(id: string) {
+  return apiFetch(`/api/assistant/conversations/${id}`, { method: "DELETE" });
+}
+export async function summarizeConversation(id: string) {
+  return apiFetch(`/api/assistant/conversations/${id}/summarize`, { method: "POST" });
+}
+export async function assistantChat(messages: any[], conversationId?: string) {
+  return apiFetch("/api/assistant/chat", {
+    method: "POST",
+    body: JSON.stringify({ messages, ...(conversationId ? { conversationId } : {}) }),
+  });
+}
+export async function brainAddSource(data: { content: string; title?: string }) {
+  return apiFetch("/api/actions/brain-add-source", { method: "POST", body: JSON.stringify(data) });
+}
+
+// ===== PLACES / ADDRESS =====
+export async function placesAutocomplete(input: string) {
+  return apiFetch<{ predictions: any[] }>(`/api/places/autocomplete?input=${encodeURIComponent(input)}`);
+}
+
+// ===== PRICING =====
+export async function fetchPricing() { return apiFetch("/api/pricing"); }
+export async function fetchPricingAddons() { return apiFetch("/api/pricing/addons"); }
+export async function estimatePrice(data: Record<string, unknown>) {
+  return apiFetch("/api/pricing/estimate", { method: "POST", body: JSON.stringify(data) });
+}
+
+// ===== SERVICE PLANS =====
+export async function fetchServicePlans() { return apiFetch("/api/service-plans"); }
+export async function createServicePlan(data: Record<string, unknown>) {
+  return apiFetch("/api/service-plans", { method: "POST", body: JSON.stringify(data) });
+}
+
+// ===== BATCH OPERATIONS =====
+export async function batchParseCustomers(data: { text: string }) {
+  return apiFetch("/api/actions/batch-parse-customers", { method: "POST", body: JSON.stringify(data) });
+}
+export async function batchCreateCustomers(data: { customers: any[] }) {
+  return apiFetch("/api/actions/batch-create-customers", { method: "POST", body: JSON.stringify(data) });
+}
+export async function batchCreateLeads(data: { leads: any[] }) {
+  return apiFetch("/api/actions/batch-create-leads", { method: "POST", body: JSON.stringify(data) });
+}
+export async function importCustomers(data: FormData | Record<string, unknown>) {
+  return apiFetch("/api/actions/import-customers", { method: "POST", body: JSON.stringify(data) });
+}
+export async function exportData(type: string) {
+  return apiFetch(`/api/actions/export?type=${type}`);
+}
+
+// ===== CARD / PAYMENT =====
+export async function attachCard(data: { customerId: string; token: string }) {
+  return apiFetch("/api/actions/attach-card", { method: "POST", body: JSON.stringify(data) });
+}
+export async function retryPayment(data: { invoiceId: string }) {
+  return apiFetch("/api/actions/retry-payment", { method: "POST", body: JSON.stringify(data) });
+}
+export async function sendPaymentLinks(data: Record<string, unknown>) {
+  return apiFetch("/api/actions/send-payment-links", { method: "POST", body: JSON.stringify(data) });
+}
+export async function redeemOffer(data: Record<string, unknown>) {
+  return apiFetch("/api/actions/redeem-offer", { method: "POST", body: JSON.stringify(data) });
+}
+
+// ===== SYNC =====
+export async function syncHubspot() {
+  return apiFetch("/api/actions/sync-hubspot", { method: "POST" });
+}
+export async function syncOpenphoneContacts() {
+  return apiFetch("/api/actions/sync-openphone-contacts", { method: "POST" });
+}
+export async function syncOpenphoneMessages() {
+  return apiFetch("/api/actions/sync-openphone-messages", { method: "POST" });
+}
+
+// ===== ADMIN =====
+export async function fetchTenants() { return apiFetch("/api/admin/tenants"); }
+export async function fetchAdminUsers() { return apiFetch("/api/admin/users"); }
+export async function fetchAuditTasks() { return apiFetch("/api/admin/audit-tasks"); }
+export async function adminOnboard(data: Record<string, unknown>) {
+  return apiFetch("/api/admin/onboard", { method: "POST", body: JSON.stringify(data) });
+}
+export async function adminRegisterWebhook(data: Record<string, unknown>) {
+  return apiFetch("/api/admin/register-webhook", { method: "POST", body: JSON.stringify(data) });
+}
+export async function adminRegisterWebhookDirect(data: Record<string, unknown>) {
+  return apiFetch("/api/admin/register-webhook-direct", { method: "POST", body: JSON.stringify(data) });
+}
+export async function adminTestConnection(data: Record<string, unknown>) {
+  return apiFetch("/api/admin/test-connection", { method: "POST", body: JSON.stringify(data) });
+}
+export async function adminTestConnectionDirect(data: Record<string, unknown>) {
+  return apiFetch("/api/admin/test-connection-direct", { method: "POST", body: JSON.stringify(data) });
+}
+export async function adminVerifyWebhooks(data: Record<string, unknown>) {
+  return apiFetch("/api/admin/verify-webhooks", { method: "POST", body: JSON.stringify(data) });
+}
+export async function adminVerifyAllWebhooks() {
+  return apiFetch("/api/admin/verify-all-webhooks", { method: "POST" });
+}
+export async function adminReregisterAllWebhooks() {
+  return apiFetch("/api/admin/reregister-all-webhooks", { method: "POST" });
+}
+export async function adminCloneVapi(data: Record<string, unknown>) {
+  return apiFetch("/api/admin/clone-vapi-assistants", { method: "POST", body: JSON.stringify(data) });
+}
+export async function adminPatchVapiTransfer(data: Record<string, unknown>) {
+  return apiFetch("/api/admin/patch-vapi-transfer", { method: "POST", body: JSON.stringify(data) });
+}
+export async function adminResetCustomer(data: Record<string, unknown>) {
+  return apiFetch("/api/admin/reset-customer", { method: "POST", body: JSON.stringify(data) });
+}
+export async function adminSyncOpenphoneContacts() {
+  return apiFetch("/api/admin/sync-openphone-contacts", { method: "POST" });
+}
+export async function seedDemoData(action: string) {
+  return apiFetch("/api/demo/seed", { method: "POST", body: JSON.stringify({ action }) });
+}
+
+// ===== TEAMS EXTRAS =====
+export async function reorderTeams(data: { teamId: string; cleanerIds: number[] }) {
+  return apiFetch("/api/teams/reorder", { method: "POST", body: JSON.stringify(data) });
+}
+export async function fetchCleanerJobs(cleanerId: number, params?: Record<string, string>) {
+  const query = params ? "&" + new URLSearchParams(params).toString() : "";
+  return apiFetch(`/api/teams/cleaner-jobs?cleaner_id=${cleanerId}${query}`);
+}
+
+// ===== CAMPAIGNS =====
+export async function fetchCampaigns() { return apiFetch("/api/tenant/campaigns"); }
+export async function createCampaign(data: Record<string, unknown>) {
+  return apiFetch("/api/tenant/campaigns", { method: "POST", body: JSON.stringify(data) });
+}
+export async function updateCampaign(id: string, data: Record<string, unknown>) {
+  return apiFetch("/api/tenant/campaigns", { method: "PUT", body: JSON.stringify({ id, ...data }) });
+}
+export async function deleteCampaign(id: string) {
+  return apiFetch("/api/tenant/campaigns", { method: "DELETE", body: JSON.stringify({ id }) });
+}
+
+// ===== RETARGETING SEQUENCES =====
+export async function fetchRetargetingSequences() {
+  return apiFetch("/api/campaigns/retargeting-sequences");
+}
+export async function toggleRetargetingSequence(data: { sequence: string; enabled: boolean }) {
+  return apiFetch("/api/campaigns/retargeting-sequences", { method: "POST", body: JSON.stringify(data) });
+}
+export async function enrollInSequence(data: { sequence: string; phone: string }) {
+  return apiFetch("/api/campaigns/retargeting-sequences", { method: "PUT", body: JSON.stringify(data) });
+}
+
+// ===== LEADERBOARD =====
+export async function fetchLeaderboard(range?: string) {
+  return apiFetch(`/api/leaderboard${range ? `?range=${range}` : ""}`);
+}
+
+// ===== RAIN DAY =====
+export async function fetchRainDay(params?: Record<string, string>) {
+  const query = params ? "?" + new URLSearchParams(params).toString() : "";
+  return apiFetch(`/api/rain-day${query}`);
+}
+export async function executeRainDay(data: Record<string, unknown>) {
+  return apiFetch("/api/rain-day", { method: "POST", body: JSON.stringify(data) });
+}
+
+// ===== LOGISTICS =====
+export async function fetchRouteForDate(date: string) {
+  return apiFetch(`/api/logistics/route/${date}`);
+}
+export async function optimizeDay(data: Record<string, unknown>) {
+  return apiFetch("/api/logistics/optimize-day", { method: "POST", body: JSON.stringify(data) });
+}
+export async function dispatchRoute(data: Record<string, unknown>) {
+  return apiFetch("/api/logistics/dispatch", { method: "POST", body: JSON.stringify(data) });
+}
+
+// ===== EXCEPTIONS =====
+export async function fetchExceptionsList() {
+  return apiFetch("/api/exceptions");
+}
+
+// ===== TENANT =====
+export async function updateTenantStatus(active: boolean) {
+  return apiFetch("/api/tenant/status", { method: "POST", body: JSON.stringify({ active }) });
+}
+
+// ===== LEADS EXTRAS =====
+export async function leadAction(id: string, action: string, data?: Record<string, unknown>) {
+  return apiFetch(`/api/leads/${id}/actions`, { method: "POST", body: JSON.stringify({ action, ...data }) });
+}
+export async function updateLead(id: string, data: Record<string, unknown>) {
+  return apiFetch(`/api/leads/${id}`, { method: "PUT", body: JSON.stringify(data) });
+}
+
+// ===== CUSTOMERS EXTRAS =====
+export async function deleteCustomer(id: string) {
+  return apiFetch(`/api/customers/${id}`, { method: "DELETE" });
+}
+export async function lookupCustomer(params: Record<string, string>) {
+  const query = new URLSearchParams(params).toString();
+  return apiFetch(`/api/customers/lookup?${query}`);
+}

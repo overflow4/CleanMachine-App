@@ -86,6 +86,7 @@ export interface Lead {
   notes?: string;
   conversation_context?: string;
   hcp_customer_id?: string;
+  form_data?: Record<string, unknown>;
   created_at: string;
   updated_at: string;
   contacted_at?: string;
@@ -164,6 +165,9 @@ export interface Job {
   payment_status?: "pending" | "deposit_paid" | "fully_paid" | "payment_failed";
   stripe_payment_intent_id?: string;
   cleaner_id?: number;
+  cleaner_name?: string;
+  cleaner_pay?: number;
+  parent_job_id?: string;
   membership_id?: string;
   frequency?: string;
   tenant_id?: string;
