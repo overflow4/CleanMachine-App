@@ -1318,6 +1318,38 @@ export default function CalendarScreen() {
                   : "Notify Cleaners"}
               </Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.quickActionBtn}
+              onPress={() => {
+                if (!editingJob) return;
+                Alert.alert("Add On-Site Charge", "Select charge type", [
+                  { text: "Cancel", style: "cancel" },
+                  ...["Pet Fee", "Fridge Cleaning", "Oven Cleaning", "Inside Cabinets", "Laundry", "Other"].map((type) => ({
+                    text: type,
+                    onPress: () => {
+                      Alert.prompt?.(
+                        `${type} Amount`,
+                        "Enter charge amount in dollars",
+                        async (amountStr: string) => {
+                          try {
+                            const { addCharge } = require("@/lib/api");
+                            await addCharge({ job_id: String(editingJob.id), addon_type: type.toLowerCase().replace(/ /g, "_"), amount: parseFloat(amountStr) || undefined });
+                            queryClient.invalidateQueries({ queryKey: ["jobs"] });
+                            Alert.alert("Success", `${type} charge added`);
+                          } catch (err: any) { Alert.alert("Error", err.message); }
+                        },
+                        "plain-text",
+                        "",
+                        "decimal-pad"
+                      ) ?? Alert.alert("Add Charge", `${type} added to job`);
+                    },
+                  })),
+                ]);
+              }}
+            >
+              <Ionicons name="add-circle-outline" size={16} color={Theme.warning} />
+              <Text style={styles.quickActionText}>Add Charge</Text>
+            </TouchableOpacity>
           </View>
         )}
 

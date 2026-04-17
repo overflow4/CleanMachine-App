@@ -402,6 +402,21 @@ export async function fetchCalls(params?: Record<string, string>) {
   return apiFetch(`/api/calls${query}`);
 }
 
+// ===== ON-SITE CHARGES =====
+export async function addCharge(data: { job_id: string; addon_type: string; amount?: number; description?: string }) {
+  return apiFetch("/api/actions/add-charge", { method: "POST", body: JSON.stringify(data) });
+}
+
+// ===== ADMIN CLEANERS =====
+export async function fetchAdminCleaners(tenantId?: string) {
+  return apiFetch(`/api/admin/cleaners${tenantId ? `?tenant_id=${tenantId}` : ""}`);
+}
+
+// ===== LOGISTICS RAIN DAY =====
+export async function logisticsRainDay(data: Record<string, unknown>) {
+  return apiFetch("/api/logistics/rain-day", { method: "POST", body: JSON.stringify(data) });
+}
+
 // ===== INSIGHTS V2 =====
 export async function fetchInsightsV2(range?: string) {
   return apiFetch(`/api/actions/insights-v2${range ? `?range=${range}` : ""}`);
