@@ -16,7 +16,8 @@ import { useAuth } from "@/lib/auth";
 import {
   fetchMetrics, fetchJobs, fetchAttentionNeeded, fetchLeads,
   fetchGhostHealth, fetchLeadSources, fetchCallTasks, fetchEarnings,
-  fetchTeams, fetchPipeline, fetchNotifications, completeCallTask, apiFetch,
+  fetchTeams, fetchPipeline, fetchNotifications, fetchLeaderboard,
+  completeCallTask, apiFetch,
 } from "@/lib/api";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { MetricCard } from "@/components/ui/MetricCard";
@@ -65,6 +66,12 @@ export default function OverviewScreen() {
     refetchInterval: 30000,
   });
 
+  const leaderboardQuery = useQuery({
+    queryKey: ["leaderboard-month"],
+    queryFn: () => fetchLeaderboard("month"),
+    retry: 1,
+  });
+
   const completeTaskMutation = useMutation({
     mutationFn: (taskId: string) => completeCallTask(taskId),
     onSuccess: () => {
@@ -79,7 +86,7 @@ export default function OverviewScreen() {
       metricsQuery.refetch(), todaysJobsQuery.refetch(), attentionQuery.refetch(),
       leadsQuery.refetch(), callTasksQuery.refetch(), ghostQuery.refetch(),
       leadSourcesQuery.refetch(), earningsQuery.refetch(), teamsQuery.refetch(),
-      pipelineQuery.refetch(), activityQuery.refetch(),
+      pipelineQuery.refetch(), activityQuery.refetch(), leaderboardQuery.refetch(),
     ]);
     setRefreshing(false);
   }, []);
@@ -137,6 +144,9 @@ export default function OverviewScreen() {
   }, [activityEvents, activityFilter]);
 
   // Revenue goal (target $2000/day as a reasonable default)
+  const leaderboardRaw: any = leaderboardQuery.data ?? {};
+  const topPerformers: any[] = (leaderboardRaw.data?.rankings ?? leaderboardRaw.data ?? leaderboardRaw.rankings ?? []).slice(0, 3);
+
   const revenue = m.total_revenue ?? m.revenue ?? 0;
   const revenueGoal = m.daily_goal ?? 2000;
   const revenuePct = revenueGoal > 0 ? Math.round((revenue / revenueGoal) * 100) : 0;
@@ -429,6 +439,27 @@ export default function OverviewScreen() {
         </GlassCard>
       )}
 
+      {/* Top Performers */}
+      {topPerformers.length > 0 && (
+        <GlassCard>
+          <View style={st.sectionHeader}>
+            <Text style={st.sectionTitle}>Top Performers</Text>
+            <Ionicons name="trophy" size={16} color={Theme.amber400} />
+          </View>
+          {topPerformers.map((p: any, i: number) => (
+            <View key={p.id ?? p.name ?? i} style={st.teamRow}>
+              <View style={[st.rankBadge, i === 0 && st.rankGold, i === 1 && st.rankSilver, i === 2 && st.rankBronze]}>
+                <Text style={st.rankText}>{i === 0 ? "\uD83E\uDD47" : i === 1 ? "\uD83E\uDD48" : "\uD83E\uDD49"}</Text>
+              </View>
+              <View style={{ flex: 1, marginLeft: 8 }}>
+                <Text style={st.itemTitle}>{p.name ?? p.cleaner_name ?? `#${i + 1}`}</Text>
+                <Text style={st.itemDesc}>${p.tips ?? p.revenue ?? 0} tips • {p.jobs ?? 0} jobs</Text>
+              </View>
+            </View>
+          ))}
+        </GlassCard>
+      )}
+
       {/* Recent Leads */}
       {leads.length > 0 && (
         <GlassCard>
@@ -574,6 +605,13 @@ const st = StyleSheet.create({
   teamRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8 },
   teamDot: { width: 8, height: 8, borderRadius: 4 },
   teamRevenue: { fontSize: 13, fontWeight: "600", color: Theme.success },
+
+  // Top performers
+  rankBadge: { width: 28, height: 28, borderRadius: 14, backgroundColor: Theme.zinc700, alignItems: "center", justifyContent: "center" },
+  rankGold: { backgroundColor: "rgba(251,191,36,0.2)" },
+  rankSilver: { backgroundColor: "rgba(148,163,184,0.2)" },
+  rankBronze: { backgroundColor: "rgba(180,83,9,0.2)" },
+  rankText: { fontSize: 14 },
 
   // Earnings
   earningsRow: { flexDirection: "row", gap: 8 },

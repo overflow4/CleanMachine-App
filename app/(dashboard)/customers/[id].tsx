@@ -33,6 +33,8 @@ import {
   fetchJobInvoiceDetails,
   apiFetch,
   recurringAction,
+  syncHubspot,
+  attachCard,
 } from "@/lib/api";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Modal } from "@/components/ui/Modal";
@@ -205,7 +207,7 @@ export default function CustomerDetailScreen() {
 
   // Edit customer
   const editMutation = useMutation({
-    mutationFn: (data: Record<string, string>) => updateCustomer(String(id), data),
+    mutationFn: (data: Record<string, any>) => updateCustomer(String(id), data),
     onSuccess: () => {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       queryClient.invalidateQueries({ queryKey: ["customers"] });
@@ -935,6 +937,71 @@ export default function CustomerDetailScreen() {
                   </Text>
                 </View>
               ))}
+          </GlassCard>
+
+          {/* SMS Opt-Out Toggle */}
+          <GlassCard>
+            <Text style={st.sectionTitle}>SMS Settings</Text>
+            <View style={st.toggleRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: Theme.foreground, fontSize: 14, fontWeight: "500" }}>
+                  SMS Opt-Out
+                </Text>
+                <Text style={{ color: Theme.mutedForeground, fontSize: 12, marginTop: 2 }}>
+                  {customer.sms_opt_out ? "Customer has opted out of SMS" : "Customer can receive SMS"}
+                </Text>
+              </View>
+              <Switch
+                value={!!customer.sms_opt_out}
+                onValueChange={(val) => {
+                  editMutation.mutate({ sms_opt_out: val });
+                }}
+                trackColor={{ false: Theme.border, true: "rgba(212,9,36,0.3)" }}
+                thumbColor={customer.sms_opt_out ? Theme.destructive : Theme.mutedForeground}
+              />
+            </View>
+          </GlassCard>
+
+          {/* Quick Actions */}
+          <GlassCard>
+            <Text style={st.sectionTitle}>Integrations</Text>
+            <TouchableOpacity
+              onPress={() => {
+                Alert.alert("Sync HubSpot", "Sync this customer's data with HubSpot?", [
+                  { text: "Cancel", style: "cancel" },
+                  { text: "Sync", onPress: async () => {
+                    try {
+                      await syncHubspot();
+                      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                      Alert.alert("Success", "HubSpot sync initiated");
+                    } catch (err: any) { Alert.alert("Error", err.message); }
+                  }},
+                ]);
+              }}
+              style={st.payAction}
+            >
+              <Ionicons name="sync-outline" size={20} color={Theme.primary} />
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={st.payActionTitle}>Sync with HubSpot</Text>
+                <Text style={st.payActionDesc}>Push customer data to HubSpot CRM</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={Theme.mutedForeground} />
+            </TouchableOpacity>
+            {!(customer as any).stripe_customer_id && (
+              <TouchableOpacity
+                onPress={() => {
+                  Alert.alert("Attach Card", "This will prompt the customer to add a payment method via a secure link.");
+                }}
+                style={st.payAction}
+              >
+                <Ionicons name="card-outline" size={20} color={Theme.success} />
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text style={st.payActionTitle}>Attach Payment Card</Text>
+                  <Text style={st.payActionDesc}>Send link to save card on file</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={Theme.mutedForeground} />
+              </TouchableOpacity>
+            )}
           </GlassCard>
 
           {/* AI Auto-Response Toggle */}

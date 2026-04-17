@@ -206,7 +206,7 @@ export default function TeamsScreen() {
   });
 
   const createCleanerMutation = useMutation({
-    mutationFn: (data: CleanerForm) => manageTeam("create_cleaner", data),
+    mutationFn: (data: CleanerForm) => manageTeam("create_cleaner", data as unknown as Record<string, unknown>),
     onSuccess: () => {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       queryClient.invalidateQueries({ queryKey: ["manage-teams"] });
@@ -219,7 +219,7 @@ export default function TeamsScreen() {
   });
 
   const updateCleanerMutation = useMutation({
-    mutationFn: (data: { cleaner_id: number } & CleanerForm) => manageTeam("update_cleaner", data),
+    mutationFn: (data: { cleaner_id: number } & CleanerForm) => manageTeam("update_cleaner", data as unknown as Record<string, unknown>),
     onSuccess: () => {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       queryClient.invalidateQueries({ queryKey: ["manage-teams"] });
@@ -247,7 +247,7 @@ export default function TeamsScreen() {
   });
 
   const createTeamMutation = useMutation({
-    mutationFn: (data: TeamForm) => manageTeam("create_team", data),
+    mutationFn: (data: TeamForm) => manageTeam("create_team", data as unknown as Record<string, unknown>),
     onSuccess: () => {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       queryClient.invalidateQueries({ queryKey: ["teams"] });
